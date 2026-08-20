@@ -1,0 +1,136 @@
+{
+  "project_name": "Plain Todo",
+  "app_type": "hybrid_fullstack (PWA productivity app / note-editor)",
+  "theme_strategy": "Clean minimal light with dark mode option (Swiss & High-Contrast Archetype)",
+  "typography": {
+    "headings": {
+      "family": "Cabinet Grotesk",
+      "import_url": "https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,500,700,400,300&display=swap",
+      "weights": ["400", "500", "700", "800"],
+      "usage": "Dates, application title, major section headers. Use tracking-tight."
+    },
+    "body_ui": {
+      "family": "IBM Plex Sans",
+      "import_url": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&display=swap",
+      "weights": ["300", "400", "500"],
+      "usage": "Navigation, buttons, tooltips, settings, login forms."
+    },
+    "editor": {
+      "family": "JetBrains Mono",
+      "import_url": "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap",
+      "weights": ["400", "500", "700"],
+      "usage": "The actual todo lists, backlog items, markdown tags. Gives it the 'plain text editor' feel."
+    }
+  },
+  "colors": {
+    "light": {
+      "background": "#FAFAFA",
+      "foreground": "#0A0A0A",
+      "surface": "#FFFFFF",
+      "border": "#E5E5E5",
+      "accent": "#000000",
+      "accent_foreground": "#FFFFFF",
+      "muted": "#737373"
+    },
+    "dark": {
+      "background": "#050505",
+      "foreground": "#EDEDED",
+      "surface": "#0A0A0A",
+      "border": "#262626",
+      "accent": "#FFFFFF",
+      "accent_foreground": "#000000",
+      "muted": "#A3A3A3"
+    },
+    "rules": [
+      "No full-screen gradients.",
+      "Never use pure #000000 or #808080. Tint greys slightly.",
+      "Use high contrast for active states. Checkboxes when checked should be inverted or faded out completely with line-through."
+    ]
+  },
+  "layouts": {
+    "desktop": {
+      "grid": "grid-cols-12 gap-0 h-screen overflow-hidden",
+      "main_editor": "col-span-8 lg:col-span-9 h-full overflow-y-auto px-12 py-16",
+      "backlog_panel": "col-span-4 lg:col-span-3 h-full overflow-y-auto border-l border-border bg-surface/50 px-8 py-16"
+    },
+    "mobile": {
+      "grid": "grid-cols-1 h-screen overflow-hidden flex flex-col",
+      "main_editor": "flex-1 overflow-y-auto px-4 py-8 pb-24",
+      "backlog_panel": "Fixed bottom sheet or drawer accessed via Floating Action Button or bottom nav. Do not show side-by-side on mobile."
+    },
+    "general": [
+      "Remove App-logo-spin and default text-align: center from App.css.",
+      "Use optical alignment over geometrical alignment.",
+      "Padding must be generous. Editor canvas should feel like a blank piece of paper."
+    ]
+  },
+  "components": {
+    "Header_Nav": {
+      "style": "Solid Background with a hard bottom border (border-b border-border). Height 64px. Minimal elements: Logo on left, Theme toggle & User profile on right.",
+      "behavior": "Sticky top-0 z-50 bg-background. DO NOT use complete transparent background in header."
+    },
+    "Editor_Canvas": {
+      "style": "Typography must be JetBrains Mono. Dates as H2 (text-2xl tracking-tight mb-8 font-cabinet).",
+      "behavior": "Toggle between rich interactive (clickable Shadcn checkboxes + text) and markdown plain-text (<textarea> with monospace font). Transition opacity 0.2s ease."
+    },
+    "Todo_Item": {
+      "style": "Flex row, items-start, gap-4 group. Custom animated checkbox. Text color should fade to muted and get line-through when checked.",
+      "interaction": "Hover state: reveal 'move to backlog' or 'drag' icon (opacity-0 group-hover:opacity-100). Focus states: focus:ring-2 focus:ring-accent focus:outline-none."
+    },
+    "Backlog_Item": {
+      "style": "Smaller typography (text-sm). Compact padding (py-2). Border-b border-border/50.",
+      "interaction": "Hover: bg-muted/10."
+    },
+    "Buttons": {
+      "style": "Sharp rectangular (rounded-none) for a brutalist edge.",
+      "interaction": "Hover: bg-accent/90 text-accent-foreground transform -translate-y-[1px] shadow-sm transition-all."
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Flat solid surfaces with crisp 1px borders. No heavy shadows. No glassmorphism (reduces legibility in text editors).",
+    "motion": "Use Framer Motion for smooth task list reordering and checking off tasks (strikethrough animation).",
+    "icons": "Use lucide-react (default) with 1.5px stroke width for a sharp, technical look."
+  },
+  "accessibility": [
+    "All interactive elements MUST include a `data-testid` attribute (e.g., data-testid='todo-checkbox', data-testid='theme-toggle').",
+    "Focus states must have HIGHER contrast (e.g., focus:ring-2 focus:ring-foreground).",
+    "Checkboxes must be keyboard navigable."
+  ],
+  "media": {
+    "auth_page_images": [
+      {
+        "url": "https://images.unsplash.com/photo-1587522384446-64daf3e2689a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwYXJjaGl0ZWN0dXJlJTIwZGVza3xlbnwwfHx8fDE3ODcyNDMzMTd8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Minimalist black monitor on white desk. Use as a half-screen hero image on the Auth/Login page to convey 'focus' and 'clean workspace'.",
+        "category": "Auth Screen Background/Split"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "You have .js files not .tsx files, so write all React components using .jsx/.js extensions.",
+    "Delete standard React boilerplate in App.css (remove text-align: center, App-header).",
+    "Configure Tailwind spacing to be generous (use p-8, p-12 where you would normally use p-4).",
+    "Implement the 'Swiss High-Contrast' palette: rely on monochrome borders and text colors. Avoid generic blue/indigo defaults.",
+    "Do not use generic Shadcn cards for the Todo items; make them seamless rows in the canvas.",
+    "For the Markdown/Rich Text toggle, ensure state transitions are smooth and don't cause layout jumps.",
+    "Integrate the imported fonts in index.css and apply them via Tailwind config (font-cabinet, font-mono, font-sans).",
+    "Ensure PWA manifest and service worker setup is complete as per user request.",
+    "Ensure DO NOT use complete transparent background in header, overlays, or any surface that has content under it."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) only where appropriate (not on the main text editor to maintain legibility).",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file. This disrupts the human natural reading flow of text.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories = main agent will use placeholder text which is FORBIDDEN.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use sonner for toasts, located in /app/frontend/src/components/ui/sonner.js or similar."
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "summary": "Full backend + frontend E2E test of Plain Todo. Backend: 27 pytest cases across auth (email/pw JWT, Google session-token, logout, validation), board/day/backlog/settings CRUD with persistence verification, rollover (everyday + workdays weekend skip + same-day idempotency) and cross-user data isolation — 26/27 passed. Frontend: verified via Playwright on the public preview URL — login (invalid + valid), registration, board render with Today badge + Backlog panel, task/bullet/link creation, Enter-to-new-line, checkbox toggle with line-through, autosave persistence across reloads, rich<->plain view toggle with plain-text editing persistence, move-to-backlog / backlog add / move-to-today / backlog delete (all persisted), search filtering, settings rollover mode persistence, theme toggle (light->dark, next-themes defaultTheme=system), logout + protected-route redirect, rollover visible in UI (open [ ] task moved to today; [x] and bullets stayed in history), mobile 390px drawer backlog and typing. Only 1 backend gap (no brute-force lockout) and 1 mobile UX gap (view toggle hidden <640px).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force protection / account lockout. 6 consecutive wrong-password attempts all returned 401 (no 429, no delay). Auth playbook expects lockout after 5 failed attempts."},
+      {"endpoint": "POST /api/auth/logout", "issue": "response.delete_cookie() is called without secure/samesite='none' flags used when setting the cookie; some browsers will not clear a SameSite=None; Secure cookie set via a mismatched delete. Logout worked in Chromium test, but recommend matching attributes."},
+      {"endpoint": "POST /api/auth/session", "issue": "Uses blocking `requests.get` inside an async endpoint (blocks the event loop). Use httpx.AsyncClient. Also inserts a new user_sessions doc on every login without cleaning old/expired sessions (unbounded growth)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Header", "issue": "Rich/plain view toggle is wrapped in 'hidden sm:flex', so it is completely unavailable below 640px. The app is specified as a phone PWA with a rich/plain view toggle — mobile users cannot reach plain-text mode.", "selector": "[data-testid=\"view-plain-btn\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Board (desktop + mobile)", "issues": ["Row actions (move-to-backlog, open-link, backlog move/delete) are opacity-0 until hover — on touch devices these are effectively hidden/undiscoverable; consider always-visible or tap-to-reveal on mobile.", "No empty-state hint for older day sections; otherwise layout, spacing and light/dark contrast are good."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Add login rate-limiting / lockout (e.g., 5 failed attempts -> 429) as per auth playbook.",
+    "Make the rich/plain view toggle reachable on mobile viewports (<640px).",
+    "Replace blocking requests.get with an async HTTP client in POST /api/auth/session and purge expired user_sessions.",
+    "Match cookie attributes (secure=True, samesite='none', path='/') in delete_cookie on logout."
+  ],
+  "critical_code_review_comments": [
+    "server.py get_board() reads db.settings twice per request (lines 326 and 334) — collapse into one read after rollover.",
+    "GET /api/board returns ALL days (to_list(1000)) with no pagination; will degrade for long-time users. Add limit/offset or date-range params.",
+    "Board.jsx debounced save keyed per date is fine, but pending timers are not flushed on unmount/logout — a task typed <600ms before logout/navigation can be lost.",
+    "SettingsDialog rollover options are <button> with no aria-checked/role=radio and no data-state, so selection state is only inferable from CSS classes; add role=\"radio\"/aria-checked for a11y and testability.",
+    "No brute-force/rate limiting on auth endpoints; user enumeration is avoided correctly (generic 401), good."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "96% (26/27)", "frontend": "100% of tested flows passed (1 mobile UX gap)"},
+  "seed_data_creation": "Temporary users prefixed TEST_/qa_reg_ and a past day 2026-08-17 for admin were created for rollover/isolation tests; ALL test data was deleted afterwards (admin days/backlog cleared, rollover_mode reset to 'everyday'). DB now has only the admin user and no day docs.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@plaintodo.com / admin123 (from /app/memory/test_credentials.md) — valid and working.",
+  "context_for_next_testing_agent": "Env 'today' is 2026-08-20. Use /app/backend/tests/backend_test.py as regression suite (run: cd /app/backend && python -m pytest tests/backend_test.py -v). The brute_force_lockout test is expected to FAIL until rate limiting is implemented. To re-trigger rollover the same calendar day, unset settings.last_rollover_date for the user via mongosh (db=test_database). Google OAuth verified only up to the redirect (https://auth.emergentagent.com/?redirect=<origin>/) and via a simulated user_sessions doc with Bearer token; real Google flow not completed.",
+  "rca_of_the_issue": "No functional defect found. The only backend failure is a missing security control (no login attempt throttling) — hash format is $2b$, cookies are HttpOnly/Secure/SameSite=None, and rollover/isolation logic is correct. The mobile view-toggle gap is a Tailwind responsive-class choice ('hidden sm:flex') in Header.jsx."
+}
