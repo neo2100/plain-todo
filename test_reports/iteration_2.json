@@ -1,0 +1,50 @@
+{
+  "summary": "Enhancement iteration E2E test of Plain Todo (backend + frontend). Backend: added /app/backend/tests/test_enhancements.py (9 new pytest cases) covering group-aware carry-over (parent + note + sub-tasks move, done/heading/loose bullet stay, no duplication on 2nd call), rollover_enabled=false, carry_weekdays weekend-skip (Sat blocked, Mon carries), custom interval_days gating (3d<5d blocked, 6d>=5d fires), weekly step=7 gating, new settings schema round-trip/sanitisation (out-of-range weekdays dropped, empty->all days, interval_days floored at 1, invalid interval_mode -> 400, auth required), backlog notes field persistence with no _id leakage. Also updated 2 stale assertions in backend_test.py that still used the removed rollover_mode field. Full suite: 35/36 passed (only the known missing brute-force lockout fails). Frontend (Playwright, public preview URL, admin login): cascade DOWN (parent check -> both children checked + line-through, persisted), uncheck independence (parent uncheck leaves children checked), cascade UP (parent auto-checks only after last child), section insert via add-section-btn (uppercase bold heading, serialised as '# Title', persisted), group ownership move-to-backlog (parent+note+subtask leave the day, notes rendered under the backlog item, persisted) and backlog move-to-today reconstruction, REAL mouse drag reorder within a day (3rd task group dragged above 1st, order + child moved as a unit, persisted after reload), REAL mouse drag onto backlog-panel droppable (task removed from day, added to backlog), heading block drag to backlog correctly rejected with 'Only tasks can go to the backlog' toast, settings dialog (switch toggle, interval-daily/weekly/custom with interval-days-input, weekday-5/6 deselect -> Mon-Fri, all PUT /api/settings and reload with saved selection), theme toggle (light->dark), logout -> /login redirect.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "Still no brute-force protection: 6 consecutive wrong passwords all return 401, never 429 (pre-existing, carried from iteration 1)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DayEditor (Tab / Shift+Tab indent)", "issue": "Indenting a line with Tab loses keyboard focus (document.activeElement becomes BODY), so text typed right after Tab is silently dropped. Reproduced: click add-task-btn, type 'kid', press Tab, type 'MORE' -> line stays 'kid'. This breaks the documented flow 'add a child line and Tab-indent it into a subtask'. Root cause: setIndent() commits without setting focusTarget, and the indent change re-groups blocks so the SortableBlock key (`${date}#${pos}`) changes and React remounts the row, destroying focus. Fix: set focusTarget.current = {index: i, pos: caret} in setIndent (same pattern as addLineAfter).", "selector": "[data-testid=\"line-input\"]", "priority": "HIGH"},
+      {"component": "DayEditor / SortableBlock drag handle", "issue": "drag-handle uses 'hidden sm:flex', so below 640px there is no drag affordance at all — reorder and drag-to-backlog are unreachable on phones even though a TouchSensor is configured (app is specified as a phone PWA).", "selector": "[data-testid=\"drag-handle\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Move task group to backlog and back to today", "issue": "Indent creep: notes/sub-tasks keep their indent when archived ('  - milk and eggs' stored in item.notes) and moveBacklogToToday() adds +1 indent again, so a round trip yields 4-space (level-2) indentation, and each further archive/restore cycle nests one more level. Observed content after one round trip: '[ ] Buy groceries\\n    - milk and eggs\\n    [ ] check pantry'. Normalise notes to indent 0 when archiving (or don't add +1 when restoring).", "affected_selectors": ["[data-testid=\"move-to-backlog-btn\"]", "[data-testid=\"backlog-move-today-btn\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Settings dialog", "issues": ["Frequency options are plain <button> without role=\"radio\"/aria-checked (selection only inferable from CSS classes) — a11y + testability gap, still open from iteration 1."]},
+      {"screen": "Board (mobile/touch)", "issues": ["Row actions and drag handle are hover-only on desktop and hidden on <640px, so drag reorder / drag-to-backlog have no touch entry point."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_enhancements.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix focus loss on Tab/Shift+Tab indent in DayEditor.setIndent (set focusTarget with caret position); keystrokes typed after Tab are currently lost.",
+    "Stop indent creep on the backlog round trip (normalise note indents when archiving or drop the +1 in moveBacklogToToday).",
+    "Make the drag handle reachable on touch/<640px viewports (remove 'hidden sm:flex' or provide a long-press/menu alternative).",
+    "Optional/pre-existing: add login rate limiting (429 after 5 fails) and role=radio/aria-checked on settings frequency options."
+  ],
+  "critical_code_review_comments": [
+    "DayEditor SortableBlock keys are positional (`${date}#${pos}`); any operation that changes block grouping (indent, reorder) remounts rows and drops focus/caret. Consider stable ids per block or a keyed line model.",
+    "SortableBlock uses only setNodeRef for the whole row and spreads listeners on the handle button; dnd-kit's setActivatorNodeRef should be attached to the handle so keyboard/aria activation works correctly.",
+    "GET /api/board still returns all days with to_list(1000) and no pagination; run_rollover also rewrites every past day on each fire — will get expensive for long-lived accounts.",
+    "Board.jsx saveBacklog/saveSettings fire an API call per keystroke/click (7 PUT /api/settings observed during a single settings session); debounce them like day content."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_enhancements.py",
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "97% (35/36; 1 known missing brute-force lockout)", "frontend": "All 9 enhancement flows verified; 1 HIGH input-focus bug + 1 indent-creep bug found"},
+  "seed_data_creation": "Throwaway users test_enh_*@example.com (auto-deleted by fixtures). Admin board/backlog were cleared before UI testing and cleared again at the end; admin settings restored to rollover_enabled=true, carry_weekdays 0-6, interval_mode daily (interval_days left at 4, unused in daily mode).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@plaintodo.com / admin123 (from /app/memory/test_credentials.md) — valid.",
+  "context_for_next_testing_agent": "Env today = 2026-08-20. Regression suites: /app/backend/tests/backend_test.py + /app/backend/tests/test_enhancements.py (run: cd /app/backend && python -m pytest tests/ -q). test_brute_force_lockout is an expected failure until rate limiting lands. Real mouse drags DO work in this harness: hover the row, grab [data-testid=drag-handle], mouse.down, then move in ~20 small steps (>6px activation) before mouse.up. To seed editor content quickly, switch to plain view and fill [data-testid=plain-editor]. Re-verify the Tab-indent focus fix by: add-task-btn -> type -> Tab -> type more (text must be appended).",
+  "rca_of_the_issue": "Tab-indent focus loss: setIndent() calls commit() without setting focusTarget.current, and because indent changes how parseBlocks() groups lines, the SortableBlock key `${date}#${pos}` changes, unmounting and remounting the input row; focus therefore returns to BODY and subsequent keystrokes are discarded. Indent creep: DayEditor.moveGroupToBacklog only subtracts the parent's indent (0), storing notes at indent 1, while Board.moveBacklogToToday unconditionally adds +1 to every note line."
+}

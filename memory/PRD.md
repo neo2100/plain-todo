@@ -31,15 +31,26 @@ desktop, mobile-friendly). Auth so each user has a private canvas.
 - PWA installable; light/dark theme (system default).
 
 ## Implemented (2026-08-20)
-- Email/password + Google auth; protected routes; logout.
+- Email/password + Google auth; protected routes; logout (with pending-save flush).
 - Board: today + all previous days, autosave (debounced, flushed on logout/unmount).
-- Rich editor (checkbox toggle, add task/bullet, Enter/Backspace/Tab handling, links,
-  move-to-backlog) and plain-text textarea; view toggle persisted (localStorage), mobile-reachable.
+- Rich editor and plain-text editor with view toggle (persisted, mobile-reachable).
 - Backlog panel with add / edit / complete / delete / move-to-today; mobile drawer.
-- Auto rollover (everyday + workdays weekend-skip, once/day idempotent) — only open `[ ]`
-  tasks move; `[x]` and bullets stay in history.
+- Auto rollover (config-driven) — only open `[ ]` task groups move; `[x]`, headings and
+  loose bullets stay in history. Group = task + its notes/sub-tasks.
 - Settings dialog for rollover mode; search across days; PWA manifest + service worker.
-- Verified by testing agent: backend 26/27, all tested frontend flows pass.
+
+## Enhancements (2026-08-20, iteration 2-3)
+- **Drag & drop**: reorder task groups within a day; drag a task onto the Backlog to park it
+  (dnd-kit, mouse + touch). Groups move as a unit.
+- **Task grouping**: a task owns the notes/sub-tasks under it; they carry over / archive together.
+- **Checkbox cascade**: checking a parent checks all sub-tasks; when all children are checked the
+  parent auto-checks; unchecking is independent.
+- **Sections**: `# Title` heading lines to group tasks within a day (add-section button).
+- **Advanced carry-over settings**: enable/disable, choose carry weekdays, and frequency
+  (daily / weekly / custom every N days). Backend honours all of it.
+- Backlog items store `notes` so a moved group keeps and restores its notes/sub-tasks (indent-stable).
+- Verified by testing agent across 3 iterations: backend 35/36 (only missing brute-force lockout),
+  all frontend/enhancement/regression flows pass.
 
 ## Backlog (prioritized)
 - **P1**: Login brute-force/rate limiting (429 after N failures).

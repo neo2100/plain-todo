@@ -1,0 +1,39 @@
+{
+  "summary": "Re-test of the 3 fixes from iteration 2 plus regression sweep. Backend: re-ran /app/backend/tests/ (backend_test.py + test_enhancements.py) -> 35/36 passed; only the known TestAuth::test_brute_force_lockout fails (no rate limiting implemented, 6x401). Frontend (Playwright, public preview URL, admin login): FIX1 Tab focus VERIFIED — add-task -> type 'kid' -> Tab (activeElement stays INPUT[line-input], value 'kid') -> type 'MORE' gives 'kidMORE'; Shift+Tab also keeps focus ('kidMOREX'); after re-indent + reload content persisted as '[ ] parent task\\n  [ ] kidMOREX'. FIX2 indent creep VERIFIED — seeded '[ ] Buy groceries / 2sp - milk and eggs / 2sp [ ] check pantry', archived + restored TWICE: restored content byte-identical to the original both cycles (no 4-space growth), and persisted across reload. FIX3 mobile drag handle VERIFIED — at 390x844 [data-testid=drag-handle] is visible, opacity 1, box x=20 w=20 (on-screen, not clipped). Regressions all pass: cascade DOWN ([x] parent -> both children [x]), uncheck parent leaves children checked, cascade UP (parent auto-checks when last child re-checked), persisted after reload; add-section-btn -> '# Evening'; real mouse drag reorder (T3 dragged above T1 -> 'T3,T1,T2'); real mouse drag onto backlog-panel (T3 removed from day, appears in backlog with 'Moved to backlog' toast); settings dialog interval-custom + interval-days-input=5 + weekday-6 deselect all PUT /api/settings and reload with saved values. Frequency options now render radio indicators (a11y note from iteration 2 visually addressed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "Still no brute-force lockout: 6 consecutive wrong passwords return 401 each, never 429 (known/expected, pre-existing)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings dialog", "issues": ["Frequency options still plain <button> without role=radio/aria-checked (visual radio dot only) — minor a11y/testability gap."]},
+      {"screen": "Board (desktop)", "issues": ["Row actions (archive) and drag handle remain hover-only on >=640px; acceptable, mobile now always visible."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_enhancements.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional/pre-existing: add login rate limiting (429 after 5 failures) — only remaining failing backend test.",
+    "Optional: role=radio/aria-checked on settings frequency options; debounce saveSettings (one PUT per click observed)."
+  ],
+  "critical_code_review_comments": [
+    "setIndent now sets focusTarget with caret — fix is correct, but SortableBlock keys remain positional (`${date}#${pos}`); any future op changing grouping still risks remount/focus loss. Consider stable block ids.",
+    "GET /api/board still unpaginated (to_list(1000)) and run_rollover rewrites every past day per fire — scalability risk.",
+    "saveSettings/saveBacklog still issue one API call per interaction (3 PUT /api/settings per short session) — debounce like day content."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "97% (35/36; 1 known missing brute-force lockout)", "frontend": "100% (3/3 fixes verified + 6/6 regression flows)"},
+  "seed_data_creation": "Used admin account only; today's board content and backlog were cleared at the end; settings restored to rollover_enabled=true, interval daily, all 7 weekdays. pytest fixtures auto-clean their throwaway users.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@plaintodo.com / admin123 (valid).",
+  "context_for_next_testing_agent": "Env today = 2026-08-20. All three iteration-2 bugs (Tab focus, indent creep, mobile drag handle) are confirmed fixed. Regression suites: cd /app/backend && python -m pytest tests/ -q (expect 1 known failure: test_brute_force_lockout). Real mouse drags work: grab [data-testid=drag-handle], mouse.down, ~20 small moves, mouse.up. Seed content fast via [data-testid=view-plain-btn] + [data-testid=plain-editor].",
+  "rca_of_the_issue": "N/A — previously reported RCAs (focusTarget missing in setIndent; double +1 indent in moveBacklogToToday; 'hidden sm:flex' on drag handle) all addressed and verified end-to-end."
+}

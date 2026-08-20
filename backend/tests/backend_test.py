@@ -205,7 +205,9 @@ class TestBoard:
         assert isinstance(d["days"], list)
         assert any(x["date"] == t for x in d["days"])
         assert "items" in d["backlog"]
-        assert d["settings"]["rollover_mode"] in ("everyday", "workdays")
+        assert set(d["settings"].keys()) == {
+            "rollover_enabled", "carry_weekdays", "interval_mode", "interval_days"}
+        assert d["settings"]["interval_mode"] in ("daily", "weekly", "custom")
         for day in d["days"]:
             assert set(day.keys()) == {"date", "content"}
 
@@ -248,13 +250,21 @@ class TestBoard:
         auth_client.put(f"{API}/backlog", json={"items": []})
 
     def test_settings_persist_and_validation(self, auth_client):
-        r = auth_client.put(f"{API}/settings", json={"rollover_mode": "workdays"})
-        assert r.status_code == 200 and r.json()["rollover_mode"] == "workdays"
+        # new schema: rollover_enabled / carry_weekdays / interval_mode / interval_days
+        payload = {"rollover_enabled": True, "carry_weekdays": [0, 1, 2, 3, 4],
+                   "interval_mode": "custom", "interval_days": 3}
+        r = auth_client.put(f"{API}/settings", json=payload)
+        assert r.status_code == 200, r.text
+        assert r.json()["carry_weekdays"] == [0, 1, 2, 3, 4]
+        assert r.json()["interval_mode"] == "custom"
         board = auth_client.get(f"{API}/board", params={"date": today_str()}).json()
-        assert board["settings"]["rollover_mode"] == "workdays"
-        bad = auth_client.put(f"{API}/settings", json={"rollover_mode": "monthly"})
+        assert board["settings"]["interval_days"] == 3
+        assert board["settings"]["carry_weekdays"] == [0, 1, 2, 3, 4]
+        bad = auth_client.put(f"{API}/settings", json={**payload, "interval_mode": "monthly"})
         assert bad.status_code == 400
-        auth_client.put(f"{API}/settings", json={"rollover_mode": "everyday"})
+        auth_client.put(f"{API}/settings", json={"rollover_enabled": True,
+                                                "carry_weekdays": [0, 1, 2, 3, 4, 5, 6],
+                                                "interval_mode": "daily", "interval_days": 1})
 
 
 # ---------------- rollover ----------------
@@ -304,7 +314,8 @@ class TestRollover:
         uid = s.post(f"{API}/auth/register", json={"email": email, "password": "secret1"}).json()["user_id"]
         cli, db = self._db()
         try:
-            s.put(f"{API}/settings", json={"rollover_mode": "workdays"})
+            s.put(f"{API}/settings", json={"rollover_enabled": True, "carry_weekdays": [0, 1, 2, 3, 4],
+                                           "interval_mode": "daily", "interval_days": 1})
             # find a past monday and the saturday after it
             base = datetime.now() - timedelta(days=30)
             sat = base + timedelta(days=(5 - base.weekday()) % 7)

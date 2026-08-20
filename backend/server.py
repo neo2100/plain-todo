@@ -127,6 +127,7 @@ class BacklogItem(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:10])
     text: str
     done: bool = False
+    notes: str = ""
 
 
 class BacklogInput(BaseModel):
@@ -134,7 +135,10 @@ class BacklogInput(BaseModel):
 
 
 class SettingsInput(BaseModel):
-    rollover_mode: str = "everyday"  # everyday | workdays
+    rollover_enabled: bool = True
+    carry_weekdays: List[int] = [0, 1, 2, 3, 4, 5, 6]
+    interval_mode: str = "daily"  # daily | weekly | custom
+    interval_days: int = 1
 
 
 def public_user(u: dict) -> dict:
@@ -242,31 +246,41 @@ def _indent_of(line: str) -> int:
     return raw.replace("\t", "  ").count("  ")
 
 
+def _is_task(line: str) -> bool:
+    s = line.lstrip(" \t")
+    return s.startswith("[ ]") or s.lower().startswith("[x]")
+
+
 def _is_open_task(line: str) -> bool:
     return line.lstrip(" \t").startswith("[ ]")
 
 
+def _is_heading(line: str) -> bool:
+    return line.lstrip(" \t").startswith("#")
+
+
 def split_open_tasks(content: str):
-    """Return (remaining_content, moved_lines) extracting open task groups."""
+    """Return (remaining_content, moved_lines).
+
+    An open task carries its whole group: following lines (notes, bullets and
+    sub-tasks) up to the next task at the same-or-shallower indent, or a heading.
+    """
     lines = content.split("\n") if content else []
     kept, moved = [], []
     i, n = 0, len(lines)
     while i < n:
         line = lines[i]
         if _is_open_task(line):
-            indent = _indent_of(line)
-            group = [line]
+            d = _indent_of(line)
             j = i + 1
             while j < n:
                 nxt = lines[j]
-                if nxt.strip() == "":
+                if _is_heading(nxt):
                     break
-                if _indent_of(nxt) > indent and not _is_open_task(nxt):
-                    group.append(nxt)
-                    j += 1
-                else:
+                if _is_task(nxt) and _indent_of(nxt) <= d:
                     break
-            moved.extend(group)
+                j += 1
+            moved.extend(lines[i:j])
             i = j
         else:
             kept.append(line)
@@ -274,16 +288,33 @@ def split_open_tasks(content: str):
     return "\n".join(kept), moved
 
 
-async def run_rollover(user_id: str, today: str, mode: str):
-    settings = await db.settings.find_one({"user_id": user_id}, {"_id": 0}) or {}
+def _rollover_step(mode: str, interval_days: int) -> int:
+    if mode == "weekly":
+        return 7
+    if mode == "custom":
+        return max(1, int(interval_days or 1))
+    return 1
+
+
+async def run_rollover(user_id: str, today: str, settings: dict):
+    if not settings.get("rollover_enabled", True):
+        return
+    carry = settings.get("carry_weekdays", [0, 1, 2, 3, 4, 5, 6])
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+    if today_dt.weekday() not in carry:
+        return  # wait for the next allowed day
+
+    step = _rollover_step(settings.get("interval_mode", "daily"), settings.get("interval_days", 1))
     last = settings.get("last_rollover_date")
     if last == today:
         return
-    # workdays mode: don't roll onto a weekend (Sat=5, Sun=6)
-    if mode == "workdays":
-        wd = datetime.strptime(today, "%Y-%m-%d").weekday()
-        if wd >= 5:
-            return
+    if last:
+        try:
+            delta = (today_dt - datetime.strptime(last, "%Y-%m-%d")).days
+            if delta < step:
+                return
+        except ValueError:
+            pass
 
     prev_days = await db.days.find(
         {"user_id": user_id, "date": {"$lt": today}}, {"_id": 0}
@@ -318,25 +349,45 @@ async def run_rollover(user_id: str, today: str, mode: str):
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+DEFAULT_SETTINGS = {
+    "rollover_enabled": True,
+    "carry_weekdays": [0, 1, 2, 3, 4, 5, 6],
+    "interval_mode": "daily",
+    "interval_days": 1,
+}
+
+
+def effective_settings(doc: dict) -> dict:
+    doc = doc or {}
+    s = dict(DEFAULT_SETTINGS)
+    # Legacy migration from the old rollover_mode field.
+    if "rollover_enabled" not in doc and "rollover_mode" in doc:
+        if doc["rollover_mode"] == "workdays":
+            s["carry_weekdays"] = [0, 1, 2, 3, 4]
+    for k in DEFAULT_SETTINGS:
+        if k in doc and doc[k] is not None:
+            s[k] = doc[k]
+    s["last_rollover_date"] = doc.get("last_rollover_date")
+    return s
+
+
 @api_router.get("/board")
 async def get_board(date: str, user: dict = Depends(get_current_user)):
     if not DATE_RE.match(date):
         raise HTTPException(status_code=400, detail="Invalid date")
     uid = user["user_id"]
-    settings = await db.settings.find_one({"user_id": uid}, {"_id": 0}) or {}
-    mode = settings.get("rollover_mode", "everyday")
-    await run_rollover(uid, date, mode)
+    settings = effective_settings(await db.settings.find_one({"user_id": uid}, {"_id": 0}))
+    await run_rollover(uid, date, settings)
 
     days = await db.days.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(1000)
     if not any(d["date"] == date for d in days):
         days = [{"date": date, "content": ""}] + days
     backlog = await db.backlog.find_one({"user_id": uid}, {"_id": 0}) or {"items": []}
-    settings = await db.settings.find_one({"user_id": uid}, {"_id": 0}) or {}
     return {
         "today": date,
         "days": [{"date": d["date"], "content": d.get("content", "")} for d in days],
         "backlog": {"items": backlog.get("items", [])},
-        "settings": {"rollover_mode": settings.get("rollover_mode", "everyday")},
+        "settings": {k: settings[k] for k in DEFAULT_SETTINGS},
     }
 
 
@@ -365,13 +416,17 @@ async def save_backlog(body: BacklogInput, user: dict = Depends(get_current_user
 
 @api_router.put("/settings")
 async def save_settings(body: SettingsInput, user: dict = Depends(get_current_user)):
-    if body.rollover_mode not in ("everyday", "workdays"):
-        raise HTTPException(status_code=400, detail="Invalid mode")
-    await db.settings.update_one(
-        {"user_id": user["user_id"]},
-        {"$set": {"rollover_mode": body.rollover_mode}}, upsert=True,
-    )
-    return {"rollover_mode": body.rollover_mode}
+    if body.interval_mode not in ("daily", "weekly", "custom"):
+        raise HTTPException(status_code=400, detail="Invalid interval mode")
+    weekdays = sorted({d for d in body.carry_weekdays if 0 <= d <= 6})
+    update = {
+        "rollover_enabled": body.rollover_enabled,
+        "carry_weekdays": weekdays or [0, 1, 2, 3, 4, 5, 6],
+        "interval_mode": body.interval_mode,
+        "interval_days": max(1, body.interval_days),
+    }
+    await db.settings.update_one({"user_id": user["user_id"]}, {"$set": update}, upsert=True)
+    return update
 
 
 @api_router.get("/")
