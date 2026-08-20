@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 4 (cross-day move, add past day, middle insert + inline conversion) tested end-to-end. Backend: 43 pytest tests run (42 pass, 1 known brute-force failure, 1 xfail for impossible-date validation) incl. a new tests/test_cross_day.py covering past-day upsert, cross-day persistence and inline-conversion serialisation. Frontend: all 3 new features verified via real mouse drags and keyboard typing on the public URL, plus regressions (within-day reorder, backlog drag, checkbox cascade, Tab indent focus, autosave, view/theme toggle, logout). No blocking defects found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/days/{date}", "issue": "DATE_RE only checks the ^\\d{4}-\\d{2}-\\d{2}$ shape, so impossible dates (e.g. 2026-13-99) are accepted and stored (200). Same regex used by GET /api/board. Suggest datetime.strptime validation -> 400. Tracked as xfail in tests/test_cross_day.py::TestAddPastDay::test_bad_date_rejected."},
+      {"endpoint": "POST /api/auth/login", "issue": "Known pre-existing failure: no brute-force lockout after 5 failed attempts (all 6 attempts return 401, playbook expects 429)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DayEditor renderRow (heading / blank rows)", "issue": "The '+' middle-insert button (and open-link/backlog actions) is only rendered for task/bullet/text rows. Heading rows and blank rows have no insert-line-btn, so the spec's 'a + button on each row' is not fully met (you cannot insert a line directly after a section heading).", "selector": "[data-testid=insert-line-btn]", "priority": "LOW"},
+      {"component": "SortableBlock drag handle (heading block)", "issue": "For a section-heading block the drag handle renders ~18px above the heading text (heading row has mt-6 while the handle keeps mt-1), so the grip looks detached/misaligned from the row it drags.", "selector": "[data-testid=drag-handle]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Board (mobile 390px)", "issues": ["Header is very crowded: search input collapses to an icon-sized box (~60px) between the logo and the 7 action buttons; only the magnifier is visible, making search hard to discover. Calendar popover itself fits inside the viewport correctly."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cross_day.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_enhancements.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: validate real calendar dates (strptime) in PUT /api/days/{date} and GET /api/board instead of the loose regex.",
+    "Optional: render the '+' insert button on heading (and blank) rows for consistency with the stated spec.",
+    "Optional: align the drag handle vertically with section-heading rows (heading has mt-6, handle has mt-1).",
+    "Optional (mobile polish): give the header search more room or move it below the header on <640px."
+  ],
+  "critical_code_review_comments": [
+    "Board.jsx moveGroupAcrossDays() issues two independent updateDay() calls, each with its own 600ms debounce; if the tab is closed within that window only one PUT may land, duplicating or losing the task. flushAll() covers unmount/logout but not a hard close — consider a single atomic 'move' API or a beforeunload flush.",
+    "Cross-day drop onto a PAST day is allowed; the next day's rollover will carry that still-open task back into today (verified behaviour of run_rollover). Intentional per current design, but worth confirming as product intent.",
+    "DayEditor.updateText() converts a 'task' line to a bullet when the user types '- ' at the start, silently discarding the done state; and inserting an empty middle line inside a task group serialises as a blank line, which parseBlocks treats as its own block and thus splits the group until text is typed. Both are minor but user-visible."
+  ],
+  "updated_files": ["/app/backend/tests/test_cross_day.py"],
+  "success_rate": {"backend": "97% (42/43 pass, 1 known pre-existing lockout failure, 1 xfail)", "frontend": "100% of tested flows passed"},
+  "seed_data_creation": "Admin board seeded/cleared during tests (day 2026-08-20 and a created past day 2026-08-05); admin days/backlog cleared and settings restored to defaults at the end. Throwaway users test_xday_* / test_enh_* deleted.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@plaintodo.com / admin123 (login testids are email-input, password-input, auth-submit-btn — NOT login-*-input)",
+  "context_for_next_testing_agent": "Verified this iteration: (1) inline conversion — typing '- milk', '# Evening', '[] call mom' converts in place, prefix consumed, caret preserved, serialises as '- milk' / '# Evening' / '[ ] call mom' and survives reload; (2) insert-line-btn inserts a focused empty line immediately below the row (index i+1) and typing '- ' there converts it, persists; visible on mobile 390px too; (3) add-day-btn opens add-day-popover, 16 future day cells disabled, picking 05 Aug created day-block-2026-08-05 in correct newest-first order, persisted after reload, second pick shows 'That day already exists' with no duplicate; (4) cross-day drag both directions (today->empty past day via day-drop-<date>, and past->today) moved the whole task group incl. its two notes, source cleaned, persisted after reload, toast 'Moved to another day'; (5) regressions OK — within-day reorder (Three->top), drag task to backlog-panel (parks it; heading drag correctly toasts 'Only tasks can go to the backlog'), checkbox cascade down + parent auto-check + independent uncheck, Tab indent keeps focus on line-input, plain/rich toggle, theme toggle, logout->/login. Real mouse drags work: hover row, grab [data-testid=drag-handle], mouse.down, 25 interpolated moves with 25ms waits, mouse.up. Backlog droppable has NO data-testid — use [data-testid=backlog-panel] as the drop target.",
+  "rca_of_the_issue": "No functional defect requiring RCA. The only new backend test failure (impossible dates accepted) roots in server.py DATE_RE being a shape-only regex; marked xfail. The brute-force lockout failure is pre-existing and unrelated to this iteration."
+}

@@ -3,6 +3,7 @@ import {
   parseContent, serializeLines, parseBlocks, groupEnd, toggleTaskCascade, firstUrl,
 } from "@/lib/parser";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +35,7 @@ export default function DayEditor({ date, content, viewMode, onChange, onMoveToB
   const [lines, setLines] = useState(() => parseContent(content));
   const inputsRef = useRef([]);
   const focusTarget = useRef(null);
+  const { setNodeRef: setDayDropRef, isOver: isDayOver } = useDroppable({ id: `day:${date}`, data: { date, type: "day" } });
 
   useEffect(() => {
     if (serializeLines(lines) !== (content || "")) setLines(parseContent(content));
@@ -54,11 +56,29 @@ export default function DayEditor({ date, content, viewMode, onChange, onMoveToB
 
   const commit = (next) => { setLines(next); onChange(serializeLines(next)); };
 
-  const updateText = (i, text) => {
-    const next = lines.slice();
-    const line = { ...next[i], text };
+  const updateText = (i, text, caret = null) => {
+    const cur = lines[i];
+    let line = { ...cur, text };
+    let removed = 0;
+    let converted = false;
+    // Inline conversion: '# ' -> section, '- ' -> bullet, '[] ' -> task.
+    if (cur.type !== "heading") {
+      let m;
+      if ((m = text.match(/^#\s/))) {
+        line = { type: "heading", text: text.slice(m[0].length), indent: 0 };
+        removed = m[0].length; converted = true;
+      } else if (cur.type !== "bullet" && (m = text.match(/^[-*]\s/))) {
+        line = { type: "bullet", text: text.slice(m[0].length), indent: cur.indent || 0 };
+        removed = m[0].length; converted = true;
+      } else if (cur.type !== "task" && (m = text.match(/^\[[ xX]?\]\s/))) {
+        line = { type: "task", done: false, text: text.slice(m[0].length), indent: cur.indent || 0 };
+        removed = m[0].length; converted = true;
+      }
+    }
     if (line.type === "blank" && text !== "") line.type = "text";
+    const next = lines.slice();
     next[i] = line;
+    if (converted && caret != null) focusTarget.current = { index: i, pos: Math.max(0, caret - removed) };
     commit(next);
   };
 
@@ -165,12 +185,15 @@ export default function DayEditor({ date, content, viewMode, onChange, onMoveToB
             ref={(el) => (inputsRef.current[i] = el)}
             data-testid="line-input"
             value={line.text}
-            onChange={(e) => updateText(i, e.target.value)}
+            onChange={(e) => updateText(i, e.target.value, e.target.selectionStart)}
             onKeyDown={(e) => onKeyDown(e, i)}
             spellCheck={false}
             placeholder="Section title…"
             className="editor-input font-cabinet font-bold text-base tracking-tight uppercase text-foreground/80"
           />
+          <button data-testid="insert-line-btn" onClick={() => addLineAfter(i, "text")} className="text-muted-foreground hover:text-foreground opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" title="Add line below">
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
         </div>
       );
     }
@@ -181,7 +204,7 @@ export default function DayEditor({ date, content, viewMode, onChange, onMoveToB
             ref={(el) => (inputsRef.current[i] = el)}
             data-testid="line-input"
             value={line.text}
-            onChange={(e) => updateText(i, e.target.value)}
+            onChange={(e) => updateText(i, e.target.value, e.target.selectionStart)}
             onKeyDown={(e) => onKeyDown(e, i)}
             className="editor-input text-sm leading-6 py-1 h-6"
           />
@@ -208,13 +231,16 @@ export default function DayEditor({ date, content, viewMode, onChange, onMoveToB
           ref={(el) => (inputsRef.current[i] = el)}
           data-testid="line-input"
           value={line.text}
-          onChange={(e) => updateText(i, e.target.value)}
+          onChange={(e) => updateText(i, e.target.value, e.target.selectionStart)}
           onKeyDown={(e) => onKeyDown(e, i)}
           spellCheck={false}
           placeholder={line.type === "task" ? "task…" : line.type === "bullet" ? "note…" : ""}
           className={`editor-input text-sm leading-6 py-0.5 ${line.type === "task" && line.done ? "line-through text-muted-foreground/60" : "text-foreground"}`}
         />
         <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity pt-[2px]">
+          <button data-testid="insert-line-btn" onClick={() => addLineAfter(i, "text")} className="text-muted-foreground hover:text-foreground" title="Add line below (type - for a note, # for a section)">
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
           {url && (
             <a href={url} target="_blank" rel="noreferrer" data-testid="open-link-btn" className="text-muted-foreground hover:text-foreground" title="Open link">
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -234,7 +260,7 @@ export default function DayEditor({ date, content, viewMode, onChange, onMoveToB
   const blockIds = blocks.map((_, pos) => `${date}#${pos}`);
 
   return (
-    <div className="space-y-0.5">
+    <div ref={setDayDropRef} className={`space-y-0.5 rounded-none transition-colors ${isDayOver ? "ring-2 ring-foreground/30 ring-inset" : ""}`} data-testid={`day-drop-${date}`}>
       {lines.length === 0 && (
         <button
           data-testid="empty-add-task"

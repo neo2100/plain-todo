@@ -349,6 +349,16 @@ async def run_rollover(user_id: str, today: str, settings: dict):
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def valid_date(date: str) -> bool:
+    if not DATE_RE.match(date):
+        return False
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
 DEFAULT_SETTINGS = {
     "rollover_enabled": True,
     "carry_weekdays": [0, 1, 2, 3, 4, 5, 6],
@@ -373,7 +383,7 @@ def effective_settings(doc: dict) -> dict:
 
 @api_router.get("/board")
 async def get_board(date: str, user: dict = Depends(get_current_user)):
-    if not DATE_RE.match(date):
+    if not valid_date(date):
         raise HTTPException(status_code=400, detail="Invalid date")
     uid = user["user_id"]
     settings = effective_settings(await db.settings.find_one({"user_id": uid}, {"_id": 0}))
@@ -393,7 +403,7 @@ async def get_board(date: str, user: dict = Depends(get_current_user)):
 
 @api_router.put("/days/{date}")
 async def save_day(date: str, body: DayInput, user: dict = Depends(get_current_user)):
-    if not DATE_RE.match(date):
+    if not valid_date(date):
         raise HTTPException(status_code=400, detail="Invalid date")
     await db.days.update_one(
         {"user_id": user["user_id"], "date": date},

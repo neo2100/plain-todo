@@ -133,6 +133,28 @@ export default function Board() {
     api.put(`/settings`, next).catch(() => toast.error("Could not save settings"));
   };
 
+  const addDay = (date) => {
+    if (days.some((d) => d.date === date)) { toast("That day already exists"); return; }
+    setDays((prev) => [...prev, { date, content: "" }].sort((x, y) => (x.date < y.date ? 1 : -1)));
+    api.put(`/days/${date}`, { content: "" }).catch(() => toast.error("Could not create day"));
+    toast("Day added");
+  };
+
+  const moveGroupAcrossDays = (fromDate, fromPos, toDate, toPos) => {
+    const srcBlocks = parseBlocks(parseContent(contentOf(fromDate)));
+    const block = srcBlocks[fromPos];
+    if (!block) return;
+    const groupLines = block.lines;
+    const remaining = srcBlocks.filter((_, i) => i !== fromPos);
+    updateDay(fromDate, serializeLines(blocksToLines(remaining)));
+
+    const dstBlocks = parseBlocks(parseContent(contentOf(toDate)));
+    const at = toPos == null ? dstBlocks.length : Math.min(toPos, dstBlocks.length);
+    dstBlocks.splice(at, 0, { start: 0, lines: groupLines });
+    updateDay(toDate, serializeLines(blocksToLines(dstBlocks)));
+    toast("Moved to another day");
+  };
+
   const onDragEnd = (event) => {
     const { active, over } = event;
     if (!over) return;
@@ -141,8 +163,7 @@ export default function Board() {
 
     // Dropped onto the backlog zone -> move the whole task group.
     if (over.id === "backlog") {
-      const lines = parseContent(contentOf(a.date));
-      const blocks = parseBlocks(lines);
+      const blocks = parseBlocks(parseContent(contentOf(a.date)));
       const block = blocks[a.pos];
       if (!block) return;
       const taskLine = block.lines.find((l) => l.type === "task");
@@ -156,13 +177,23 @@ export default function Board() {
       return;
     }
 
-    // Reorder within the same day.
     const o = over.data.current;
-    if (o && o.type === "block" && o.date === a.date && a.pos !== o.pos) {
-      const lines = parseContent(contentOf(a.date));
-      const blocks = parseBlocks(lines);
-      const moved = arrayMove(blocks, a.pos, o.pos);
-      updateDay(a.date, serializeLines(blocksToLines(moved)));
+    // Dropped over a block.
+    if (o && o.type === "block") {
+      if (o.date === a.date) {
+        if (a.pos !== o.pos) {
+          const blocks = parseBlocks(parseContent(contentOf(a.date)));
+          const moved = arrayMove(blocks, a.pos, o.pos);
+          updateDay(a.date, serializeLines(blocksToLines(moved)));
+        }
+      } else {
+        moveGroupAcrossDays(a.date, a.pos, o.date, o.pos);
+      }
+      return;
+    }
+    // Dropped onto a day drop-zone (e.g. empty day or gaps).
+    if (o && o.type === "day" && o.date !== a.date) {
+      moveGroupAcrossDays(a.date, a.pos, o.date, null);
     }
   };
 
@@ -187,6 +218,8 @@ export default function Board() {
         viewMode={viewMode}
         setViewMode={setViewMode}
         onOpenSettings={() => setSettingsOpen(true)}
+        onAddDay={addDay}
+        today={today}
         search={search}
         setSearch={setSearch}
         onOpenBacklog={() => setBacklogSheetOpen(true)}

@@ -1,18 +1,25 @@
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
-  CheckSquare, Sun, Moon, Settings, LogOut, Search, PanelRight, Code2, ListChecks,
+  CheckSquare, Sun, Moon, Settings, LogOut, Search, PanelRight, Code2, ListChecks, CalendarPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function Header({
-  user, onLogout, viewMode, setViewMode, onOpenSettings, search, setSearch, onOpenBacklog,
+  user, onLogout, viewMode, setViewMode, onOpenSettings, onAddDay, today, search, setSearch, onOpenBacklog,
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const [dayPickerOpen, setDayPickerOpen] = useState(false);
   useEffect(() => setMounted(true), []);
   const isDark = resolvedTheme === "dark";
 
@@ -58,6 +65,24 @@ export default function Header({
         <Button data-testid="backlog-toggle-btn" onClick={onOpenBacklog} variant="ghost" size="icon" className="rounded-none lg:hidden">
           <PanelRight className="h-4 w-4" strokeWidth={1.5} />
         </Button>
+
+        <Popover open={dayPickerOpen} onOpenChange={setDayPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button data-testid="add-day-btn" variant="ghost" size="icon" className="rounded-none" title="Add a past day">
+              <CalendarPlus className="h-4 w-4" strokeWidth={1.5} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-auto p-0 rounded-none" data-testid="add-day-popover">
+            <Calendar
+              mode="single"
+              disabled={(d) => d > new Date()}
+              onSelect={(d) => {
+                if (d) { onAddDay(toDateStr(d)); setDayPickerOpen(false); }
+              }}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
 
         <Button
           data-testid="theme-toggle"
