@@ -1,0 +1,42 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      DB_NAME: "plain_todo"
+      JWT_SECRET: "change-me-in-production"
+      CORS_ORIGINS: "http://localhost:8080"
+      FRONTEND_URL: "http://localhost:8080"
+      ADMIN_EMAIL: "admin@plaintodo.com"
+      ADMIN_PASSWORD: "admin123"
+      # Local HTTP: cookies cannot be Secure. Use HTTPS + defaults in production.
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: "lax"
+    ports:
+      - "8001:8001"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # The frontend calls <origin>/api; nginx proxies /api to the backend.
+        REACT_APP_BACKEND_URL: "http://localhost:8080"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  mongo_data:

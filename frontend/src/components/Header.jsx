@@ -2,6 +2,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
   CheckSquare, Sun, Moon, Settings, LogOut, Search, PanelRight, Code2, ListChecks, CalendarPlus,
+  FileText, HelpCircle, Github, Check, Loader2, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -15,7 +16,8 @@ function toDateStr(d) {
 }
 
 export default function Header({
-  user, onLogout, viewMode, setViewMode, onOpenSettings, onAddDay, today, search, setSearch, onOpenBacklog,
+  user, onLogout, viewMode, setViewMode, onOpenSettings, onOpenHelp, onAddDay, today,
+  search, setSearch, saveStatus, onRetrySave, onOpenBacklog,
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -60,6 +62,28 @@ export default function Header({
           >
             <Code2 className="h-4 w-4" strokeWidth={1.5} />
           </button>
+          <button
+            data-testid="view-file-btn"
+            onClick={() => setViewMode("file")}
+            title="Single-file view (all days)"
+            className={`h-9 px-2.5 flex items-center transition-colors ${viewMode === "file" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <FileText className="h-4 w-4" strokeWidth={1.5} />
+          </button>
+        </div>
+
+        <div data-testid="save-status" className="hidden sm:flex items-center gap-1.5 px-2 min-w-[92px] justify-center">
+          {saveStatus === "saving" && (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" strokeWidth={1.5} /><span className="text-xs font-mono text-muted-foreground">Saving…</span></>
+          )}
+          {saveStatus === "saved" && (
+            <><Check className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.5} /><span className="text-xs font-mono text-muted-foreground">Saved</span></>
+          )}
+          {saveStatus === "error" && (
+            <button data-testid="save-retry-btn" onClick={onRetrySave} className="flex items-center gap-1.5 text-destructive" title="Retry saving">
+              <AlertCircle className="h-3.5 w-3.5" strokeWidth={1.5} /><span className="text-xs font-mono">Retry</span>
+            </button>
+          )}
         </div>
 
         <Button data-testid="backlog-toggle-btn" onClick={onOpenBacklog} variant="ghost" size="icon" className="rounded-none lg:hidden">
@@ -92,6 +116,10 @@ export default function Header({
           {mounted && isDark ? <Sun className="h-4 w-4" strokeWidth={1.5} /> : <Moon className="h-4 w-4" strokeWidth={1.5} />}
         </Button>
 
+        <Button data-testid="help-btn" onClick={onOpenHelp} variant="ghost" size="icon" className="rounded-none" title="Quick guide & shortcuts">
+          <HelpCircle className="h-4 w-4" strokeWidth={1.5} />
+        </Button>
+
         <Button data-testid="settings-btn" onClick={onOpenSettings} variant="ghost" size="icon" className="rounded-none">
           <Settings className="h-4 w-4" strokeWidth={1.5} />
         </Button>
@@ -105,6 +133,11 @@ export default function Header({
           <DropdownMenuContent align="end" className="rounded-none w-56">
             <DropdownMenuLabel className="font-mono text-xs truncate">{user?.email}</DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem asChild className="rounded-none cursor-pointer">
+              <a href="https://github.com/neo2100/plain-todo/" target="_blank" rel="noreferrer" data-testid="menu-github-link">
+                <Github className="h-4 w-4 mr-2" strokeWidth={1.5} /> GitHub repo
+              </a>
+            </DropdownMenuItem>
             <DropdownMenuItem data-testid="logout-btn" onClick={onLogout} className="rounded-none cursor-pointer">
               <LogOut className="h-4 w-4 mr-2" strokeWidth={1.5} /> Sign out
             </DropdownMenuItem>

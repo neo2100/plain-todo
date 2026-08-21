@@ -39,7 +39,7 @@ desktop, mobile-friendly). Auth so each user has a private canvas.
   loose bullets stay in history. Group = task + its notes/sub-tasks.
 - Settings dialog for rollover mode; search across days; PWA manifest + service worker.
 
-## Enhancements (2026-08-20, iteration 2-3)
+## Enhancements (2026-08-20, iterations 2-5)
 - **Drag & drop**: reorder task groups within a day; drag a task onto the Backlog to park it
   (dnd-kit, mouse + touch). Groups move as a unit.
 - **Task grouping**: a task owns the notes/sub-tasks under it; they carry over / archive together.
@@ -49,7 +49,13 @@ desktop, mobile-friendly). Auth so each user has a private canvas.
 - **Advanced carry-over settings**: enable/disable, choose carry weekdays, and frequency
   (daily / weekly / custom every N days). Backend honours all of it.
 - Backlog items store `notes` so a moved group keeps and restores its notes/sub-tasks (indent-stable).
-- Verified by testing agent across 3 iterations: backend 35/36 (only missing brute-force lockout),
+- **Iteration 4-5**: cross-day drag; add past day (calendar); middle-insert `+`; inline conversion
+  (`- `/`# `/`[] `); single-file view (all days in one file) with multi-line Task/Note/Section
+  convert; quick-guide Help sheet + GitHub/Contact links; robust autosave (per-day retry +
+  honest Saving/Saved/Retry status, race-safe backend upsert) fixing the false "Save failed";
+  strict date validation; Docker Compose (BE+FE+Mongo), LICENSE (MIT), CONTRIBUTING, and
+  docs/ (ARCHITECTURE, DATABASE, SHORTCUTS).
+- Verified by testing agent across iterations: backend green (only missing brute-force lockout),
   all frontend/enhancement/regression flows pass.
 
 ## Backlog (prioritized)

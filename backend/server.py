@@ -16,6 +16,7 @@ import re
 import bcrypt
 import jwt
 import requests
+from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone, timedelta
 
 # ---------------------------------------------------------------------------
@@ -59,9 +60,13 @@ def create_access_token(user_id: str, email: str) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() == "true"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none" if COOKIE_SECURE else "lax")
+
+
 def set_auth_cookie(response: Response, name: str, value: str, max_age: int):
-    response.set_cookie(key=name, value=value, httponly=True, secure=True,
-                        samesite="none", max_age=max_age, path="/")
+    response.set_cookie(key=name, value=value, httponly=True, secure=COOKIE_SECURE,
+                        samesite=COOKIE_SAMESITE, max_age=max_age, path="/")
 
 
 async def resolve_user(request: Request) -> Optional[dict]:
@@ -227,8 +232,8 @@ async def logout(request: Request, response: Response):
     session_token = request.cookies.get("session_token")
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
-    response.delete_cookie("access_token", path="/", secure=True, samesite="none")
-    response.delete_cookie("session_token", path="/", secure=True, samesite="none")
+    response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
+    response.delete_cookie("session_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
     return {"ok": True}
 
 
@@ -333,11 +338,7 @@ async def run_rollover(user_id: str, today: str, settings: dict):
         existing = today_doc.get("content", "") if today_doc else ""
         base = existing.rstrip("\n")
         merged = ("\n".join([base] + all_moved)).strip("\n") if base else "\n".join(all_moved)
-        await db.days.update_one(
-            {"user_id": user_id, "date": today},
-            {"$set": {"content": merged, "updated_at": datetime.now(timezone.utc).isoformat()}},
-            upsert=True,
-        )
+        await _upsert_day(user_id, today, merged)
 
     await db.settings.update_one({"user_id": user_id},
                                  {"$set": {"last_rollover_date": today}}, upsert=True)
@@ -391,6 +392,8 @@ async def get_board(date: str, user: dict = Depends(get_current_user)):
 
     days = await db.days.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(1000)
     if not any(d["date"] == date for d in days):
+        # Always create the current day document on open.
+        await _upsert_day(uid, date, "")
         days = [{"date": date, "content": ""}] + days
     backlog = await db.backlog.find_one({"user_id": uid}, {"_id": 0}) or {"items": []}
     return {
@@ -401,15 +404,21 @@ async def get_board(date: str, user: dict = Depends(get_current_user)):
     }
 
 
+async def _upsert_day(uid: str, date: str, content: str):
+    filt = {"user_id": uid, "date": date}
+    update = {"$set": {"content": content, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    try:
+        await db.days.update_one(filt, update, upsert=True)
+    except DuplicateKeyError:
+        # Concurrent upsert on the (user_id, date) unique index — plain update is safe.
+        await db.days.update_one(filt, update)
+
+
 @api_router.put("/days/{date}")
 async def save_day(date: str, body: DayInput, user: dict = Depends(get_current_user)):
     if not valid_date(date):
         raise HTTPException(status_code=400, detail="Invalid date")
-    await db.days.update_one(
-        {"user_id": user["user_id"], "date": date},
-        {"$set": {"content": body.content, "updated_at": datetime.now(timezone.utc).isoformat()}},
-        upsert=True,
-    )
+    await _upsert_day(user["user_id"], date, body.content)
     return {"ok": True}
 
 
