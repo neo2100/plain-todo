@@ -23,9 +23,10 @@ root.render(
 );
 
 if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
   let refreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) return;
+    if (refreshing || !hadController) return; // skip reload on first-ever install
     refreshing = true;
     window.location.reload();
   });
