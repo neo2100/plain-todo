@@ -13,6 +13,8 @@ services:
       # Local HTTP: cookies cannot be Secure. Use HTTPS + defaults in production.
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: "lax"
+    networks:
+      - coolify
     ports:
       - "8001:8001"
 
