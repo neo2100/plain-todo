@@ -10,6 +10,8 @@ import { useAuth } from "@/context/AuthContext";
 import { parseContent, parseBlocks, blocksToLines, serializeLines } from "@/lib/parser";
 import Header from "@/components/Header";
 import DayEditor from "@/components/DayEditor";
+import FileEditor from "@/components/FileEditor";
+import HelpSheet from "@/components/HelpSheet";
 import BacklogPanel from "@/components/BacklogPanel";
 import SettingsDialog from "@/components/SettingsDialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -51,7 +53,9 @@ export default function Board() {
   const [viewMode, setViewMode] = useState(() => localStorage.getItem("pt_view") || "rich");
   const [search, setSearch] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [backlogSheetOpen, setBacklogSheetOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("saved"); // saved | saving | error
   const saveTimers = useRef({});
   const pending = useRef({});
   const today = localDate(0);
@@ -90,13 +94,59 @@ export default function Board() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Robust, per-date autosave: coalesce edits, retry once on failure, and
+  // report an honest status instead of firing a toast on every transient error.
+  const flushDate = async (date) => {
+    const content = pending.current[date];
+    if (content === undefined) return;
+    try {
+      await api.put(`/days/${date}`, { content });
+    } catch (e) {
+      try {
+        await new Promise((r) => setTimeout(r, 1000));
+        await api.put(`/days/${date}`, { content: pending.current[date] ?? content });
+      } catch (e2) {
+        setSaveStatus("error");
+        return;
+      }
+    }
+    // Only clear if no newer edit arrived while saving.
+    if (pending.current[date] === content) {
+      delete pending.current[date];
+      if (Object.keys(pending.current).length === 0) setSaveStatus((s) => (s === "error" ? "error" : "saved"));
+    } else {
+      flushDate(date);
+    }
+  };
+
   const scheduleSave = (date, content) => {
     pending.current[date] = content;
+    setSaveStatus("saving");
     clearTimeout(saveTimers.current[date]);
-    saveTimers.current[date] = setTimeout(() => {
-      delete pending.current[date];
-      api.put(`/days/${date}`, { content }).catch(() => toast.error("Save failed"));
-    }, 600);
+    saveTimers.current[date] = setTimeout(() => flushDate(date), 600);
+  };
+
+  const retrySaves = () => {
+    setSaveStatus("saving");
+    Object.keys(pending.current).forEach((date) => flushDate(date));
+    if (Object.keys(pending.current).length === 0) setSaveStatus("saved");
+  };
+
+  // Quiet PUT with one retry for backlog / settings / day creation.
+  const safePut = async (url, body) => {
+    setSaveStatus("saving");
+    try {
+      await api.put(url, body);
+      setSaveStatus((s) => (Object.keys(pending.current).length ? s : "saved"));
+    } catch (e) {
+      try {
+        await new Promise((r) => setTimeout(r, 1000));
+        await api.put(url, body);
+        setSaveStatus((s) => (Object.keys(pending.current).length ? s : "saved"));
+      } catch (e2) {
+        setSaveStatus("error");
+      }
+    }
   };
 
   const contentOf = (date) => days.find((d) => d.date === date)?.content || "";
@@ -111,7 +161,7 @@ export default function Board() {
 
   const saveBacklog = (items) => {
     setBacklog(items);
-    api.put(`/backlog`, { items }).catch(() => toast.error("Backlog save failed"));
+    safePut(`/backlog`, { items });
   };
 
   const addBacklog = (text, notes = "") => {
@@ -130,14 +180,21 @@ export default function Board() {
 
   const saveSettings = (next) => {
     setSettings(next);
-    api.put(`/settings`, next).catch(() => toast.error("Could not save settings"));
+    safePut(`/settings`, next);
   };
 
   const addDay = (date) => {
     if (days.some((d) => d.date === date)) { toast("That day already exists"); return; }
     setDays((prev) => [...prev, { date, content: "" }].sort((x, y) => (x.date < y.date ? 1 : -1)));
-    api.put(`/days/${date}`, { content: "" }).catch(() => toast.error("Could not create day"));
+    safePut(`/days/${date}`, { content: "" });
     toast("Day added");
+  };
+
+  // Save the combined single-file editor: only PUT days whose content changed.
+  const saveFileText = (parsedDays) => {
+    parsedDays.forEach(({ date, content }) => {
+      if (contentOf(date) !== content) updateDay(date, content);
+    });
   };
 
   const moveGroupAcrossDays = (fromDate, fromPos, toDate, toPos) => {
@@ -218,10 +275,13 @@ export default function Board() {
         viewMode={viewMode}
         setViewMode={setViewMode}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
         onAddDay={addDay}
         today={today}
         search={search}
         setSearch={setSearch}
+        saveStatus={saveStatus}
+        onRetrySave={retrySaves}
         onOpenBacklog={() => setBacklogSheetOpen(true)}
       />
 
@@ -229,27 +289,33 @@ export default function Board() {
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
           <main className="lg:col-span-8 xl:col-span-9 overflow-y-auto thin-scroll px-5 sm:px-10 lg:px-20 py-10 lg:py-14" data-testid="editor-canvas">
             <div className="max-w-3xl">
-              {visibleDays.length === 0 && (
-                <p className="font-mono text-sm text-muted-foreground">No days match “{search}”.</p>
+              {viewMode === "file" ? (
+                <FileEditor days={days} onSave={saveFileText} />
+              ) : (
+                <>
+                  {visibleDays.length === 0 && (
+                    <p className="font-mono text-sm text-muted-foreground">No days match “{search}”.</p>
+                  )}
+                  {visibleDays.map((day, idx) => (
+                    <section
+                      key={day.date}
+                      className="group/day mb-14 animate-fade-up"
+                      style={{ animationDelay: `${Math.min(idx, 6) * 40}ms` }}
+                      data-testid={`day-block-${day.date}`}
+                    >
+                      <DayHeader date={day.date} />
+                      <DayEditor
+                        date={day.date}
+                        content={day.content}
+                        viewMode={viewMode}
+                        onChange={(c) => updateDay(day.date, c)}
+                        onMoveToBacklog={addBacklog}
+                      />
+                      {idx < visibleDays.length - 1 && <div className="h-px bg-border mt-14" />}
+                    </section>
+                  ))}
+                </>
               )}
-              {visibleDays.map((day, idx) => (
-                <section
-                  key={day.date}
-                  className="group/day mb-14 animate-fade-up"
-                  style={{ animationDelay: `${Math.min(idx, 6) * 40}ms` }}
-                  data-testid={`day-block-${day.date}`}
-                >
-                  <DayHeader date={day.date} />
-                  <DayEditor
-                    date={day.date}
-                    content={day.content}
-                    viewMode={viewMode}
-                    onChange={(c) => updateDay(day.date, c)}
-                    onMoveToBacklog={addBacklog}
-                  />
-                  {idx < visibleDays.length - 1 && <div className="h-px bg-border mt-14" />}
-                </section>
-              ))}
             </div>
           </main>
 
@@ -271,6 +337,7 @@ export default function Board() {
         settings={settings}
         onChange={saveSettings}
       />
+      <HelpSheet open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }

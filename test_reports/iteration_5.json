@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 5 full-stack verification of Plain Todo. Backend: ran existing suites (backend_test.py, test_enhancements.py, test_cross_day.py) plus a new tests/test_iteration5.py covering strict date validation, carry-forward across day gaps, rollover idempotency/disable, and rapid repeated PUT saves — 57/58 passed (only the known TestAuth::test_brute_force_lockout fails). Frontend: verified the reported autosave false-positive bug is FIXED (no 'Save failed' toast during ~15s continuous typing, rapid settings toggles or rapid backlog adds; save-status goes Saving… -> Saved; content persists after reload). Verified single-file view, multi-line convert (Task/Note/Section), inline conversions, help sheet + GitHub/Contact links, cross-day drag, drag-to-backlog, add-past-day (future dates disabled), checkbox cascade, Tab-indent focus retention, theme toggle, logout. Also simulated a genuine network failure (aborting PUT /api/days/**): status correctly showed Retry with save-retry-btn, no toast spam, and clicking Retry saved + persisted the edit.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "No brute-force lockout: 6+ consecutive bad passwords all return 401, never 429 (known pre-existing failure of TestAuth::test_brute_force_lockout; auth playbook expects lockout after 5 fails)"},
+      {"endpoint": "GET /api/board", "issue": "Today's day document is only persisted when the rollover actually carries tasks (run_rollover -> _upsert_day). With no open tasks to carry, today's day is returned in the response but never inserted in DB, so 'auto-create current day on open' is only virtual. Harmless today but inconsistent with feature (D)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Single-file view", "issues": ["Day separator lines ('=== YYYY-MM-DD ===') render as plain text with no visual emphasis; easy to accidentally edit/delete a separator which silently orphans that day's lines (parseFile drops any lines before the first separator)."]},
+      {"screen": "Login page (desktop 1920px)", "issues": ["Large vertical dead space between the logo and hero image/copy on the left panel."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_enhancements.py",
+    "/app/backend/tests/test_cross_day.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: implement login rate limiting/lockout (429 after 5 failed attempts) to satisfy the auth playbook and the existing failing test.",
+    "Optional: persist today's day document on GET /api/board even when nothing is carried over (feature D wording), or relax the requirement.",
+    "Optional hardening in FileEditor: guard against a deleted/edited '=== date ===' separator (lines before the first separator are silently dropped by parseFile); also convert('section') discards the line's indentation (`# ${t}` ignores `indent`)."
+  ],
+  "critical_code_review_comments": [
+    "Board.jsx flushDate: recursion on 'newer edit arrived' path is fine, but on the failed-retry path the pending entry is kept forever and saveStatus stays 'error' until manual Retry — acceptable/intentional; consider an auto-retry with backoff.",
+    "FileEditor rebuilds its text only when the set of dates changes (datesSig); external content changes (e.g. rollover) to an existing date are not reflected while the file view is mounted.",
+    "parseFile silently drops any content typed above the first '=== date ===' separator — no user feedback.",
+    "server.py run_rollover reads up to 1000 previous days per board load and rewrites each day containing open tasks; fine at current scale but O(days) per open."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration5.py"],
+  "success_rate": {"backend": "98% (57/58; only known brute-force-lockout test fails)", "frontend": "100% of tested flows passed"},
+  "seed_data_creation": "Seeded/removed TEST_ days for the admin user via API + mongosh inside tests; created a past day 2026-08-10 and TEST backlog items during UI testing. All cleaned up: admin days deleted, backlog emptied, settings restored to defaults (rollover_enabled=true, carry_weekdays=[0..6], daily/1, last_rollover_date=null).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@plaintodo.com / admin123 (from /app/memory/test_credentials.md; works)",
+  "context_for_next_testing_agent": "New regression file /app/backend/tests/test_iteration5.py mutates the admin user's days/settings but snapshots and restores them (module-scoped 'snapshot' fixture) — run it with the rest of the suite; pytest.ini uses xdist loadscope so keep DB-mutating tests in one module. Frontend save bug (false 'Save failed') could not be reproduced; the network-abort simulation (page.route abort on **/api/days/**) is the way to exercise the error/Retry path. Real mouse drags work with ~25 small mouse.move steps after hovering the row to reveal data-testid=drag-handle.",
+  "rca_of_the_issue": "The previously reported intermittent 'Save failed' toast came from the old per-keystroke PUT that surfaced any transient/aborted request as a toast. The rework (Board.jsx scheduleSave/flushDate/safePut) coalesces edits per date, retries once after 1s, and reports state via the save-status indicator instead of toasts. Verified: during continuous typing and rapid settings/backlog mutations no toast appeared and status settled on 'Saved'; when PUTs were forcibly aborted, status showed 'Retry' (save-retry-btn) and the pending content was saved successfully after clicking it."
+}
