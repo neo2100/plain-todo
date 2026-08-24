@@ -6,8 +6,8 @@ services:
       MONGO_URL: ${MONGODB_URL}
       DB_NAME: "plain_todo"
       JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGINS: "http://localhost:9393"
-      FRONTEND_URL: "http://localhost:9393"
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       # Local HTTP: cookies cannot be Secure. Use HTTPS + defaults in production.
@@ -23,7 +23,7 @@ services:
       context: ./frontend
       args:
         # The frontend calls <origin>/api; nginx proxies /api to the backend.
-        REACT_APP_BACKEND_URL: "http://localhost:9393"
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
     restart: unless-stopped
     networks:
       - coolify
