@@ -1,4 +1,4 @@
-# Plain Todo — PRD
+# Plain Todo PRD
 
 ## Original Problem Statement
 A PWA-ready todo management web app ("Plain Todo") usable on phone. A plain-text-editor

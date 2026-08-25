@@ -1,6 +1,6 @@
 {
   "short_name": "Plain Todo",
-  "name": "Plain Todo — your plain-text todo canvas",
+  "name": "Plain Todo | Your plain-text todo canvas",
   "description": "A plain text editor for your daily todos. Checkboxes, bullets, links, auto carry-over and a backlog.",
   "start_url": "/",
   "scope": "/",
@@ -9,7 +9,17 @@
   "background_color": "#FAFAFA",
   "theme_color": "#0A0A0A",
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
   ]
 }
