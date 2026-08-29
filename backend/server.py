@@ -245,103 +245,513 @@ async def me(user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 # Rollover logic
 # ---------------------------------------------------------------------------
-def _indent_of(line: str) -> int:
-    stripped = line.lstrip(" \t")
-    raw = line[: len(line) - len(stripped)]
-    return raw.replace("\t", "  ").count("  ")
+from datetime import datetime, timedelta
+import re
+
+
+TASK_RE = re.compile(r"^\s*\[( |x|X)\]")
 
 
 def _is_task(line: str) -> bool:
-    s = line.lstrip(" \t")
-    return s.startswith("[ ]") or s.lower().startswith("[x]")
+    return bool(TASK_RE.match(line))
 
 
 def _is_open_task(line: str) -> bool:
-    return line.lstrip(" \t").startswith("[ ]")
+    return bool(re.match(r"^\s*\[\s\]", line))
 
 
 def _is_heading(line: str) -> bool:
     return line.lstrip(" \t").startswith("#")
 
 
-def split_open_tasks(content: str):
-    """Return (remaining_content, moved_lines).
+def _indent_of(line: str) -> int:
+    stripped = line.lstrip(" \t")
+    raw = line[: len(line) - len(stripped)]
+    return raw.replace("\t", "  ").count("  ")
 
-    An open task carries its whole group: following lines (notes, bullets and
-    sub-tasks) up to the next task at the same-or-shallower indent, or a heading.
+
+def extract_open_task_blocks(content: str):
     """
-    lines = content.split("\n") if content else []
-    kept, moved = [], []
-    i, n = 0, len(lines)
+    Extract open task blocks while preserving their original order.
+
+    A block starts with an open task and includes all following lines until:
+      - another task at the same or shallower indentation
+      - a heading
+
+    Example:
+
+        [ ] Add new feature
+          [ ] subtask 1
+          - some note
+
+    becomes one block.
+    """
+    lines = content.splitlines()
+    blocks = []
+
+    i = 0
+    n = len(lines)
+
     while i < n:
         line = lines[i]
-        if _is_open_task(line):
-            d = _indent_of(line)
-            j = i + 1
-            while j < n:
-                nxt = lines[j]
+
+        if not _is_open_task(line):
+            i += 1
+            continue
+
+        indent = _indent_of(line)
+        block = [line]
+        i += 1
+
+        while i < n:
+            nxt = lines[i]
+
+            if _is_heading(nxt):
+                break
+
+            if _is_task(nxt) and _indent_of(nxt) <= indent:
+                break
+
+            block.append(nxt)
+            i += 1
+
+        blocks.append(block)
+
+    return blocks
+
+
+def _section_name(line: str) -> str:
+    """
+    Return a normalized section name.
+
+    '# Plain ToDo improvements' -> '# Plain ToDo improvements'
+    """
+    return line.strip()
+
+
+def _collect_open_tasks_by_section(documents):
+    """
+    Collect open task blocks from documents.
+
+    Returns:
+
+        [
+            {
+                "section": "# Section A",
+                "blocks": [...]
+            },
+            ...
+        ]
+
+    Section order is the order in which sections/tasks are first encountered
+    while walking from oldest -> newest day.
+
+    Tasks within a section retain their original order.
+    """
+
+    sections = {}
+    section_order = []
+
+    for doc in documents:
+        content = doc.get("content", "")
+        lines = content.splitlines()
+
+        current_section = None
+        i = 0
+
+        while i < len(lines):
+            line = lines[i]
+
+            # A heading changes the current section.
+            if _is_heading(line):
+                current_section = _section_name(line)
+
+                if current_section not in sections:
+                    sections[current_section] = []
+                    section_order.append(current_section)
+
+                i += 1
+                continue
+
+            # Ignore everything that isn't an open task.
+            if not _is_open_task(line):
+                i += 1
+                continue
+
+            indent = _indent_of(line)
+            block = [line]
+            i += 1
+
+            # Capture the complete task block.
+            while i < len(lines):
+                nxt = lines[i]
+
                 if _is_heading(nxt):
                     break
-                if _is_task(nxt) and _indent_of(nxt) <= d:
+
+                if _is_task(nxt) and _indent_of(nxt) <= indent:
                     break
-                j += 1
-            moved.extend(lines[i:j])
-            i = j
-        else:
-            kept.append(line)
-            i += 1
-    return "\n".join(kept), moved
+
+                block.append(nxt)
+                i += 1
+
+            if current_section not in sections:
+                sections[current_section] = []
+                section_order.append(current_section)
+
+            sections[current_section].append(block)
+
+    return [
+        {
+            "section": section,
+            "blocks": sections[section],
+        }
+        for section in section_order
+    ]
 
 
-def _rollover_step(mode: str, interval_days: int) -> int:
-    if mode == "weekly":
-        return 7
-    if mode == "custom":
-        return max(1, int(interval_days or 1))
-    return 1
+def _task_key(block):
+    """
+    Return a normalized key used for duplicate detection.
+
+    Currently the complete task block is used.
+
+    This means:
+
+        [ ] Task A
+
+    and:
+
+        [ ] Task A
+          note
+
+    are considered different.
+
+    If you want duplicate detection based only on the task title,
+    change this function later.
+    """
+    return "\n".join(line.rstrip() for line in block).strip()
 
 
-async def run_rollover(user_id: str, today: str, settings: dict):
-    if not settings.get("rollover_enabled", True):
-        return
-    carry = settings.get("carry_weekdays", [0, 1, 2, 3, 4, 5, 6])
+def _build_rollover_content(section_groups):
+    """
+    Build text for the rollover while preserving section/task order.
+    """
+
+    output = []
+
+    for group in section_groups:
+        section = group["section"]
+        blocks = group["blocks"]
+
+        if not blocks:
+            continue
+
+        # Add section heading for named sections.
+        if section:
+            if output:
+                output.append("")
+
+            output.append(section)
+
+        for block in blocks:
+            if output and output[-1] != "":
+                output.append("")
+
+            output.extend(block)
+
+    return "\n".join(output).strip()
+
+
+async def roll_over(user_id: str, today: str, days: int):
+    """
+    Copy open tasks from the previous `days` calendar days into today.
+
+    IMPORTANT:
+      - Previous days are never modified.
+      - Tasks are grouped by section.
+      - Original order is preserved as much as possible.
+      - Existing today content is preserved.
+      - Duplicate tasks are not added.
+
+    Example:
+
+        roll_over(user_id, "2026-08-29", 3)
+
+    looks at:
+
+        2026-08-28
+        2026-08-27
+        2026-08-26
+
+    and merges their open tasks into 2026-08-29.
+    """
+
+    days = max(1, int(days))
+
     today_dt = datetime.strptime(today, "%Y-%m-%d")
-    if today_dt.weekday() not in carry:
-        return  # wait for the next allowed day
 
-    step = _rollover_step(settings.get("interval_mode", "daily"), settings.get("interval_days", 1))
-    last = settings.get("last_rollover_date")
-    if last == today:
-        return
-    if last:
-        try:
-            delta = (today_dt - datetime.strptime(last, "%Y-%m-%d")).days
-            if delta < step:
-                return
-        except ValueError:
-            pass
+    start_dt = today_dt - timedelta(days=days)
 
-    prev_days = await db.days.find(
-        {"user_id": user_id, "date": {"$lt": today}}, {"_id": 0}
-    ).sort("date", 1).to_list(1000)
+    start_date = start_dt.strftime("%Y-%m-%d")
 
-    all_moved = []
-    for d in prev_days:
-        remaining, moved = split_open_tasks(d.get("content", ""))
-        if moved:
-            all_moved.extend(moved)
-            await db.days.update_one({"user_id": user_id, "date": d["date"]},
-                                     {"$set": {"content": remaining}})
+    # Get the requested historical window.
+    cursor = db.days.find(
+        {
+            "user_id": user_id,
+            "date": {
+                "$gte": start_date,
+                "$lt": today,
+            },
+        },
+        {
+            "_id": 0,
+            "date": 1,
+            "content": 1,
+        },
+    ).sort("date", 1)
 
-    if all_moved:
-        today_doc = await db.days.find_one({"user_id": user_id, "date": today}, {"_id": 0})
-        existing = today_doc.get("content", "") if today_doc else ""
-        base = existing.rstrip("\n")
-        merged = ("\n".join([base] + all_moved)).strip("\n") if base else "\n".join(all_moved)
-        await _upsert_day(user_id, today, merged)
+    previous_days = await cursor.to_list(days)
 
-    await db.settings.update_one({"user_id": user_id},
-                                 {"$set": {"last_rollover_date": today}}, upsert=True)
+    if not previous_days:
+        return {
+            "rolled_over": False,
+            "days": days,
+            "tasks_added": 0,
+        }
+
+    # ---------------------------------------------------------
+    # Read today's content.
+    # ---------------------------------------------------------
+
+    today_doc = await db.days.find_one(
+        {
+            "user_id": user_id,
+            "date": today,
+        },
+        {
+            "_id": 0,
+            "content": 1,
+        },
+    )
+
+    today_content = (
+        today_doc.get("content", "")
+        if today_doc
+        else ""
+    )
+
+    # ---------------------------------------------------------
+    # Collect existing today's task keys.
+    #
+    # This prevents us from adding a task that already exists.
+    # ---------------------------------------------------------
+
+    existing_today_blocks = extract_open_task_blocks(today_content)
+
+    existing_keys = {
+        _task_key(block)
+        for block in existing_today_blocks
+    }
+
+    # ---------------------------------------------------------
+    # Collect historical open tasks grouped by section.
+    # ---------------------------------------------------------
+
+    section_groups = _collect_open_tasks_by_section(previous_days)
+
+    added = 0
+
+    for group in section_groups:
+        unique_blocks = []
+
+        for block in group["blocks"]:
+            key = _task_key(block)
+
+            if not key:
+                continue
+
+            if key in existing_keys:
+                continue
+
+            # Also prevent the same task from being copied twice
+            # when it appears on multiple historical days.
+            if key in {_task_key(b) for b in unique_blocks}:
+                continue
+
+            unique_blocks.append(block)
+            existing_keys.add(key)
+            added += 1
+
+        group["blocks"] = unique_blocks
+
+    if added == 0:
+        return {
+            "rolled_over": False,
+            "days": days,
+            "tasks_added": 0,
+        }
+
+    rollover_content = _build_rollover_content(section_groups)
+
+    if not rollover_content:
+        return {
+            "rolled_over": False,
+            "days": days,
+            "tasks_added": 0,
+        }
+
+    # ---------------------------------------------------------
+    # Merge with today.
+    #
+    # Historical rollover content comes first.
+    # Today's existing content remains untouched afterwards.
+    # ---------------------------------------------------------
+
+    if today_content.strip():
+        merged_content = (
+            rollover_content.rstrip()
+            + "\n\n"
+            + today_content.lstrip()
+        )
+    else:
+        merged_content = rollover_content
+
+    await _upsert_day(
+        user_id,
+        today,
+        merged_content,
+    )
+
+    return {
+        "rolled_over": True,
+        "days": days,
+        "tasks_added": added,
+    }
+
+
+def get_rollover_days(settings: dict, today: str):
+    """
+    Decide whether rollover should happen today.
+
+    Returns:
+        number of days to roll over
+        or None if rollover should not happen.
+
+    This function does NOT modify the database.
+    """
+
+    if not settings.get("rollover_enabled", True):
+        return None
+
+    today_dt = datetime.strptime(today, "%Y-%m-%d")
+
+    # ---------------------------------------------------------
+    # Allowed weekdays
+    # ---------------------------------------------------------
+
+    carry_weekdays = settings.get(
+        "carry_weekdays",
+        [0, 1, 2, 3, 4, 5, 6],
+    )
+
+    try:
+        carry_weekdays = {
+            int(day)
+            for day in carry_weekdays
+            if 0 <= int(day) <= 6
+        }
+    except (TypeError, ValueError):
+        carry_weekdays = {0, 1, 2, 3, 4, 5, 6}
+
+    if today_dt.weekday() not in carry_weekdays:
+        return None
+
+    # ---------------------------------------------------------
+    # Don't run twice today.
+    # ---------------------------------------------------------
+
+    last_rollover_date = settings.get("last_rollover_date")
+
+    if last_rollover_date == today:
+        return None
+
+    # ---------------------------------------------------------
+    # Determine interval.
+    # ---------------------------------------------------------
+
+    mode = (settings.get("interval_mode") or "daily").lower()
+
+    if mode == "weekly":
+        interval_days = 7
+
+    elif mode == "custom":
+        interval_days = max(
+            1,
+            int(settings.get("interval_days") or 1),
+        )
+
+    else:
+        interval_days = 1
+
+    # ---------------------------------------------------------
+    # First rollover.
+    # ---------------------------------------------------------
+
+    if not last_rollover_date:
+        return interval_days
+
+    try:
+        last_dt = datetime.strptime(
+            last_rollover_date,
+            "%Y-%m-%d",
+        )
+    except (TypeError, ValueError):
+        return interval_days
+
+    elapsed = (today_dt - last_dt).days
+
+    if elapsed < interval_days:
+        return None
+
+    return interval_days
+
+
+async def maybe_roll_over(
+    user_id: str,
+    today: str,
+    settings: dict,
+):
+    days = get_rollover_days(
+        settings=settings,
+        today=today,
+    )
+
+    if days is None:
+        return {
+            "rolled_over": False,
+            "days": 0,
+            "tasks_added": 0,
+        }
+
+    result = await roll_over(
+        user_id=user_id,
+        today=today,
+        days=days,
+    )
+
+    await db.settings.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "last_rollover_date": today,
+            }
+        },
+        upsert=True,
+    )
+
+    return result
+
 
 
 # ---------------------------------------------------------------------------
@@ -369,38 +779,114 @@ DEFAULT_SETTINGS = {
 
 
 def effective_settings(doc: dict) -> dict:
+    """
+    Merge stored settings with defaults.
+
+    Keeps last_rollover_date available internally, but it is not part
+    of DEFAULT_SETTINGS because it is runtime/state information rather
+    than a user-configurable setting.
+    """
     doc = doc or {}
+
     s = dict(DEFAULT_SETTINGS)
+
     # Legacy migration from the old rollover_mode field.
     if "rollover_enabled" not in doc and "rollover_mode" in doc:
         if doc["rollover_mode"] == "workdays":
             s["carry_weekdays"] = [0, 1, 2, 3, 4]
-    for k in DEFAULT_SETTINGS:
-        if k in doc and doc[k] is not None:
-            s[k] = doc[k]
+
+    for key in DEFAULT_SETTINGS:
+        if key in doc and doc[key] is not None:
+            s[key] = doc[key]
+
     s["last_rollover_date"] = doc.get("last_rollover_date")
+
     return s
 
 
 @api_router.get("/board")
-async def get_board(date: str, user: dict = Depends(get_current_user)):
+async def get_board(
+    date: str,
+    user: dict = Depends(get_current_user),
+):
     if not valid_date(date):
-        raise HTTPException(status_code=400, detail="Invalid date")
-    uid = user["user_id"]
-    settings = effective_settings(await db.settings.find_one({"user_id": uid}, {"_id": 0}))
-    await run_rollover(uid, date, settings)
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date",
+        )
 
-    days = await db.days.find({"user_id": uid}, {"_id": 0}).sort("date", -1).to_list(1000)
+    uid = user["user_id"]
+
+    # Load effective settings.
+    settings_doc = await db.settings.find_one(
+        {"user_id": uid},
+        {"_id": 0},
+    )
+
+    settings = effective_settings(settings_doc)
+
+    # Let the rollover decision/execution logic handle rollover.
+    #
+    # This checks:
+    #   - rollover_enabled
+    #   - allowed weekday
+    #   - interval
+    #   - last_rollover_date
+    #
+    # and, if appropriate, calls roll_over().
+    await maybe_roll_over(
+        user_id=uid,
+        today=date,
+        settings=settings,
+    )
+
+    # Reload settings because maybe_roll_over() may have updated
+    # last_rollover_date.
+    settings_doc = await db.settings.find_one(
+        {"user_id": uid},
+        {"_id": 0},
+    )
+
+    settings = effective_settings(settings_doc)
+
+    # Get all board days.
+    days = await db.days.find(
+        {"user_id": uid},
+        {"_id": 0},
+    ).sort("date", -1).to_list(1000)
+
+    # Always create the current day document on open.
     if not any(d["date"] == date for d in days):
-        # Always create the current day document on open.
         await _upsert_day(uid, date, "")
-        days = [{"date": date, "content": ""}] + days
-    backlog = await db.backlog.find_one({"user_id": uid}, {"_id": 0}) or {"items": []}
+
+        days = [
+            {"date": date, "content": ""}
+        ] + days
+
+    backlog = (
+        await db.backlog.find_one(
+            {"user_id": uid},
+            {"_id": 0},
+        )
+        or {"items": []}
+    )
+
     return {
         "today": date,
-        "days": [{"date": d["date"], "content": d.get("content", "")} for d in days],
-        "backlog": {"items": backlog.get("items", [])},
-        "settings": {k: settings[k] for k in DEFAULT_SETTINGS},
+        "days": [
+            {
+                "date": d["date"],
+                "content": d.get("content", ""),
+            }
+            for d in days
+        ],
+        "backlog": {
+            "items": backlog.get("items", []),
+        },
+        "settings": {
+            key: settings[key]
+            for key in DEFAULT_SETTINGS
+        },
     }
 
 
