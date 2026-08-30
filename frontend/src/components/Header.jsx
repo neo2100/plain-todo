@@ -1,7 +1,7 @@
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
-  CheckSquare, Sun, Moon, Settings, LogOut, Search, PanelRight, Code2, ListChecks, CalendarPlus,
+  CheckSquare, Sun, Moon, Settings, LogOut, Search, PanelRight, ListChecks, CalendarPlus,
   FileText, HelpCircle, Github, Check, Loader2, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
