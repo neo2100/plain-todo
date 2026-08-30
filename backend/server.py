@@ -245,10 +245,6 @@ async def me(user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 # Rollover logic
 # ---------------------------------------------------------------------------
-from datetime import datetime, timedelta
-import re
-
-
 TASK_RE = re.compile(r"^\s*\[( |x|X)\]")
 
 
@@ -455,9 +451,6 @@ def _build_rollover_content(section_groups):
             output.append(section)
 
         for block in blocks:
-            if output and output[-1] != "":
-                output.append("")
-
             output.extend(block)
 
     return "\n".join(output).strip()
@@ -604,15 +597,15 @@ async def roll_over(user_id: str, today: str, days: int):
     # ---------------------------------------------------------
     # Merge with today.
     #
-    # Historical rollover content comes first.
-    # Today's existing content remains untouched afterwards.
+    # Today's existing content remains untouched first.
+    # Historical rollover content comes afterwards.
     # ---------------------------------------------------------
 
     if today_content.strip():
         merged_content = (
-            rollover_content.rstrip()
+            today_content.lstrip()
             + "\n\n"
-            + today_content.lstrip()
+            + rollover_content.rstrip()
         )
     else:
         merged_content = rollover_content
