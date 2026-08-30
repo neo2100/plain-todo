@@ -55,14 +55,6 @@ export default function Header({
             <ListChecks className="h-4 w-4" strokeWidth={1.5} />
           </button>
           <button
-            data-testid="view-plain-btn"
-            onClick={() => setViewMode("plain")}
-            title="Plain text view"
-            className={`h-9 px-2.5 flex items-center transition-colors ${viewMode === "plain" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <Code2 className="h-4 w-4" strokeWidth={1.5} />
-          </button>
-          <button
             data-testid="view-file-btn"
             onClick={() => setViewMode("file")}
             title="Single-file view (all days)"
