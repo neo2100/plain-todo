@@ -97,9 +97,13 @@ yarn start
 | `JWT_SECRET` | Secret for signing JWT access tokens |
 | `CORS_ORIGINS` | Comma‑separated allowed origins |
 | `FRONTEND_URL` | Frontend origin |
+| `REACT_APP_BACKEND_URL` | Backend URL for Google redirect |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seeded admin account |
 | `COOKIE_SECURE` | `true` (default) or `false` for local HTTP |
 | `COOKIE_SAMESITE` | `none` (default when secure) / `lax` |
+| `GOOGLE_CLIENT_ID` | Google client ID|
+| `GOOGLE_CLIENT_SECRET` | Google client secret|
+
 
 **Frontend** (`frontend/.env`)
 

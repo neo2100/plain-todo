@@ -3,9 +3,11 @@ from pathlib import Path
 import os
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from authlib.integrations.starlette_client import OAuth
+from fastapi.responses import RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import logging
@@ -22,22 +24,39 @@ from datetime import datetime, timezone, timedelta
 # ---------------------------------------------------------------------------
 # Config / DB
 # ---------------------------------------------------------------------------
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ["DB_NAME"]]
 
 JWT_ALGORITHM = "HS256"
-EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+EMERGENT_SESSION_URL = (
+    "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def get_jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
+
+
+oauth = OAuth()
+
+oauth.register(
+    name="google",
+    client_id=os.environ["GOOGLE_CLIENT_ID"],
+    client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={
+        "scope": "openid email profile",
+    },
+)
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +74,12 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str, email: str) -> str:
-    payload = {"sub": user_id, "email": email,
-               "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        "type": "access",
+    }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
@@ -65,8 +88,15 @@ COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none" if COOKIE_SECURE else
 
 
 def set_auth_cookie(response: Response, name: str, value: str, max_age: int):
-    response.set_cookie(key=name, value=value, httponly=True, secure=COOKIE_SECURE,
-                        samesite=COOKIE_SAMESITE, max_age=max_age, path="/")
+    response.set_cookie(
+        key=name,
+        value=value,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=max_age,
+        path="/",
+    )
 
 
 async def resolve_user(request: Request) -> Optional[dict]:
@@ -77,7 +107,9 @@ async def resolve_user(request: Request) -> Optional[dict]:
         if auth_header.startswith("Bearer "):
             session_token = auth_header[7:]
     if session_token:
-        sess = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+        sess = await db.user_sessions.find_one(
+            {"session_token": session_token}, {"_id": 0}
+        )
         if sess:
             expires_at = sess["expires_at"]
             if isinstance(expires_at, str):
@@ -85,7 +117,9 @@ async def resolve_user(request: Request) -> Optional[dict]:
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
             if expires_at >= datetime.now(timezone.utc):
-                user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0, "password_hash": 0})
+                user = await db.users.find_one(
+                    {"user_id": sess["user_id"]}, {"_id": 0, "password_hash": 0}
+                )
                 if user:
                     return user
 
@@ -95,7 +129,9 @@ async def resolve_user(request: Request) -> Optional[dict]:
         try:
             payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
             if payload.get("type") == "access":
-                user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+                user = await db.users.find_one(
+                    {"user_id": payload["sub"]}, {"_id": 0, "password_hash": 0}
+                )
                 if user:
                     return user
         except jwt.InvalidTokenError:
@@ -147,8 +183,12 @@ class SettingsInput(BaseModel):
 
 
 def public_user(u: dict) -> dict:
-    return {"user_id": u["user_id"], "email": u["email"],
-            "name": u.get("name"), "picture": u.get("picture")}
+    return {
+        "user_id": u["user_id"],
+        "email": u["email"],
+        "name": u.get("name"),
+        "picture": u.get("picture"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -158,13 +198,20 @@ def public_user(u: dict) -> dict:
 async def register(body: RegisterInput, response: Response):
     email = body.email.lower().strip()
     if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+        raise HTTPException(
+            status_code=400, detail="An account with this email already exists."
+        )
     user_id = f"user_{uuid.uuid4().hex[:12]}"
-    await db.users.insert_one({
-        "user_id": user_id, "email": email, "name": body.name or email.split("@")[0],
-        "password_hash": hash_password(body.password), "picture": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+    await db.users.insert_one(
+        {
+            "user_id": user_id,
+            "email": email,
+            "name": body.name or email.split("@")[0],
+            "password_hash": hash_password(body.password),
+            "picture": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
     token = create_access_token(user_id, email)
     set_auth_cookie(response, "access_token", token, 604800)
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
@@ -175,56 +222,100 @@ async def register(body: RegisterInput, response: Response):
 async def login(body: LoginInput, response: Response):
     email = body.email.lower().strip()
     user = await db.users.find_one({"email": email})
-    if not user or not user.get("password_hash") or not verify_password(body.password, user["password_hash"]):
+    if (
+        not user
+        or not user.get("password_hash")
+        or not verify_password(body.password, user["password_hash"])
+    ):
         raise HTTPException(status_code=401, detail="Invalid email or password.")
     token = create_access_token(user["user_id"], email)
     set_auth_cookie(response, "access_token", token, 604800)
     return public_user(user)
 
 
-@api_router.post("/auth/session")
-async def google_session(request: Request, response: Response):
-    session_id = request.headers.get("X-Session-ID")
-    if not session_id:
-        body = {}
-        try:
-            body = await request.json()
-        except Exception:
-            pass
-        session_id = body.get("session_id")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="Missing session id")
-    try:
-        r = requests.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": session_id}, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        logger.error(f"Emergent session-data error: {e}")
-        raise HTTPException(status_code=401, detail="Failed to verify session")
+@api_router.get("/auth/google/login")
+async def google_login(request: Request):
+    redirect_uri = f"{os.environ['REACT_APP_BACKEND_URL']}" "/auth/google/callback"
 
-    email = data["email"].lower().strip()
-    existing = await db.users.find_one({"email": email})
+    return await oauth.google.authorize_redirect(
+        request,
+        redirect_uri,
+    )
+
+
+@api_router.get("/auth/google/callback")
+async def google_callback(request: Request):
+    token = await oauth.google.authorize_access_token(request)
+
+    user_info = token["userinfo"]
+
+    google_id = user_info["sub"]
+    email = user_info["email"].lower().strip()
+    name = user_info.get("name")
+    picture = user_info.get("picture")
+
+    existing = await db.users.find_one({"google_id": google_id})
+
     if existing:
         user_id = existing["user_id"]
-        await db.users.update_one({"user_id": user_id},
-                                  {"$set": {"name": data.get("name"), "picture": data.get("picture")}})
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id, "email": email, "name": data.get("name"),
-            "picture": data.get("picture"), "password_hash": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
 
-    session_token = data["session_token"]
-    await db.user_sessions.insert_one({
-        "user_id": user_id, "session_token": session_token,
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    set_auth_cookie(response, "session_token", session_token, 604800)
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
-    return public_user(user)
+        await db.users.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "name": name,
+                    "picture": picture,
+                }
+            },
+        )
+
+    else:
+        # Also check email so Google login can be associated
+        # with an existing password account.
+        existing_by_email = await db.users.find_one({"email": email})
+
+        if existing_by_email:
+            user_id = existing_by_email["user_id"]
+
+            await db.users.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "google_id": google_id,
+                        "name": name,
+                        "picture": picture,
+                    }
+                },
+            )
+
+        else:
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+
+            await db.users.insert_one(
+                {
+                    "user_id": user_id,
+                    "email": email,
+                    "name": name or email.split("@")[0],
+                    "picture": picture,
+                    "password_hash": None,
+                    "google_id": google_id,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
+    # Create YOUR normal application token.
+    token = create_access_token(user_id, email)
+
+    response = RedirectResponse(url=f"{os.environ['FRONTEND_URL']}/")
+
+    set_auth_cookie(
+        response,
+        "access_token",
+        token,
+        604800,
+    )
+
+    return response
 
 
 @api_router.post("/auth/logout")
@@ -232,8 +323,12 @@ async def logout(request: Request, response: Response):
     session_token = request.cookies.get("session_token")
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
-    response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
-    response.delete_cookie("session_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
+    response.delete_cookie(
+        "access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE
+    )
+    response.delete_cookie(
+        "session_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE
+    )
     return {"ok": True}
 
 
@@ -528,11 +623,7 @@ async def roll_over(user_id: str, today: str, days: int):
         },
     )
 
-    today_content = (
-        today_doc.get("content", "")
-        if today_doc
-        else ""
-    )
+    today_content = today_doc.get("content", "") if today_doc else ""
 
     # ---------------------------------------------------------
     # Collect existing today's task keys.
@@ -542,10 +633,7 @@ async def roll_over(user_id: str, today: str, days: int):
 
     existing_today_blocks = extract_open_task_blocks(today_content)
 
-    existing_keys = {
-        _task_key(block)
-        for block in existing_today_blocks
-    }
+    existing_keys = {_task_key(block) for block in existing_today_blocks}
 
     # ---------------------------------------------------------
     # Collect historical open tasks grouped by section.
@@ -602,11 +690,7 @@ async def roll_over(user_id: str, today: str, days: int):
     # ---------------------------------------------------------
 
     if today_content.strip():
-        merged_content = (
-            today_content.lstrip()
-            + "\n\n"
-            + rollover_content.rstrip()
-        )
+        merged_content = today_content.lstrip() + "\n\n" + rollover_content.rstrip()
     else:
         merged_content = rollover_content
 
@@ -649,11 +733,7 @@ def get_rollover_days(settings: dict, today: str):
     )
 
     try:
-        carry_weekdays = {
-            int(day)
-            for day in carry_weekdays
-            if 0 <= int(day) <= 6
-        }
+        carry_weekdays = {int(day) for day in carry_weekdays if 0 <= int(day) <= 6}
     except (TypeError, ValueError):
         carry_weekdays = {0, 1, 2, 3, 4, 5, 6}
 
@@ -744,7 +824,6 @@ async def maybe_roll_over(
     )
 
     return result
-
 
 
 # ---------------------------------------------------------------------------
@@ -843,26 +922,25 @@ async def get_board(
     settings = effective_settings(settings_doc)
 
     # Get all board days.
-    days = await db.days.find(
-        {"user_id": uid},
-        {"_id": 0},
-    ).sort("date", -1).to_list(1000)
+    days = (
+        await db.days.find(
+            {"user_id": uid},
+            {"_id": 0},
+        )
+        .sort("date", -1)
+        .to_list(1000)
+    )
 
     # Always create the current day document on open.
     if not any(d["date"] == date for d in days):
         await _upsert_day(uid, date, "")
 
-        days = [
-            {"date": date, "content": ""}
-        ] + days
+        days = [{"date": date, "content": ""}] + days
 
-    backlog = (
-        await db.backlog.find_one(
-            {"user_id": uid},
-            {"_id": 0},
-        )
-        or {"items": []}
-    )
+    backlog = await db.backlog.find_one(
+        {"user_id": uid},
+        {"_id": 0},
+    ) or {"items": []}
 
     return {
         "today": date,
@@ -876,16 +954,18 @@ async def get_board(
         "backlog": {
             "items": backlog.get("items", []),
         },
-        "settings": {
-            key: settings[key]
-            for key in DEFAULT_SETTINGS
-        },
+        "settings": {key: settings[key] for key in DEFAULT_SETTINGS},
     }
 
 
 async def _upsert_day(uid: str, date: str, content: str):
     filt = {"user_id": uid, "date": date}
-    update = {"$set": {"content": content, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    update = {
+        "$set": {
+            "content": content,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
     try:
         await db.days.update_one(filt, update, upsert=True)
     except DuplicateKeyError:
@@ -906,7 +986,12 @@ async def save_backlog(body: BacklogInput, user: dict = Depends(get_current_user
     items = [i.model_dump() for i in body.items]
     await db.backlog.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"items": items, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {
+            "$set": {
+                "items": items,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
         upsert=True,
     )
     return {"items": items}
@@ -923,7 +1008,9 @@ async def save_settings(body: SettingsInput, user: dict = Depends(get_current_us
         "interval_mode": body.interval_mode,
         "interval_days": max(1, body.interval_days),
     }
-    await db.settings.update_one({"user_id": user["user_id"]}, {"$set": update}, upsert=True)
+    await db.settings.update_one(
+        {"user_id": user["user_id"]}, {"$set": update}, upsert=True
+    )
     return update
 
 
@@ -937,7 +1024,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -954,15 +1041,22 @@ async def startup():
     if admin_email and admin_password:
         existing = await db.users.find_one({"email": admin_email})
         if existing is None:
-            await db.users.insert_one({
-                "user_id": f"user_{uuid.uuid4().hex[:12]}", "email": admin_email,
-                "name": "Admin", "password_hash": hash_password(admin_password),
-                "picture": None, "role": "admin",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
+            await db.users.insert_one(
+                {
+                    "user_id": f"user_{uuid.uuid4().hex[:12]}",
+                    "email": admin_email,
+                    "name": "Admin",
+                    "password_hash": hash_password(admin_password),
+                    "picture": None,
+                    "role": "admin",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         elif not verify_password(admin_password, existing.get("password_hash", "")):
-            await db.users.update_one({"email": admin_email},
-                                      {"$set": {"password_hash": hash_password(admin_password)}})
+            await db.users.update_one(
+                {"email": admin_email},
+                {"$set": {"password_hash": hash_password(admin_password)}},
+            )
 
 
 @app.on_event("shutdown")

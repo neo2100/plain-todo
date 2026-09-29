@@ -8,8 +8,11 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGINS: ${CORS_ORIGINS}
       FRONTEND_URL: ${FRONTEND_URL}
+      REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       # Local HTTP: cookies cannot be Secure. Use HTTPS + defaults in production.
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: "lax"
