@@ -235,7 +235,7 @@ async def login(body: LoginInput, response: Response):
 
 @api_router.get("/auth/google/login")
 async def google_login(request: Request):
-    redirect_uri = f"{os.environ['REACT_APP_BACKEND_URL']}" "/auth/google/callback"
+    redirect_uri = f"{os.environ['REACT_APP_BACKEND_URL']}" "/api/auth/google/callback"
 
     return await oauth.google.authorize_redirect(
         request,

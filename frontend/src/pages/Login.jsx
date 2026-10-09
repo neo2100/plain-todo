@@ -33,7 +33,7 @@ export default function Login() {
   };
 
   const googleLogin = () => {
-    window.location.href = `${import.meta.env.REACT_APP_BACKEND_URL}/auth/google/login`;
+    window.location.href = `${process.env.REACT_APP_BACKEND_URL}/api/auth/google/login`;
   };
 
   return (
