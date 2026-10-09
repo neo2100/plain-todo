@@ -17,9 +17,9 @@ import uuid
 import re
 import bcrypt
 import jwt
-import requests
 from pymongo.errors import DuplicateKeyError
 from datetime import datetime, timezone, timedelta
+from starlette.middleware.sessions import SessionMiddleware
 
 # ---------------------------------------------------------------------------
 # Config / DB
@@ -35,6 +35,21 @@ EMERGENT_SESSION_URL = (
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ["SESSION_SECRET"],
+    same_site="lax",
+    https_only=True,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -1020,14 +1035,6 @@ async def root():
 
 
 app.include_router(api_router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 @app.on_event("startup")
